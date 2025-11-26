@@ -1,0 +1,49 @@
+line_number,source_text,target_text,paragraph_similarity,sentence_similarity,similarity_diff,paragraph_time_ms,sentence_time_ms
+1,# 第一卷 序章 孤傲的公主大人与怠惰的邻人,"# Volume 1, Prologue: The Proud Princess and the Lazy Neighbor",0.836941,0.884583,-0.047642,6924.658,116.120
+2,台版 转自 天使动漫论坛 ,"Taiwanese version, reprinted from Angel Anime Forum",0.961605,0.932792,0.028813,25.594,44.503
+3,天使动漫录入组 ,Angel Anime Input Team,0.877553,0.912355,-0.034802,43.257,87.607
+4,图源：一空独 ,Image source: Ikoku Doku,0.810715,0.836892,-0.026177,42.494,52.358
+5,录入：kid ,Input by: kid,0.889164,0.872714,0.016450,45.890,80.196
+6,私立征岭学园。 ,Private Seirei Academy.,0.748026,0.830160,-0.082134,86.593,144.053
+7,从以前到现在，陆续有许多毕业生活跃于政经界，以学生优秀程度堪称日本顶尖为豪，从国中、高中到大学都采取直升制度的一贯制学校。该校历史悠久，昔日新旧贵族的子弟也大多就读于此，是沿袭优良传统的名校。 ,"From the past until now, many alumni have been active in politics and business, proudly boasting one",0.553612,0.838035,-0.284423,36.993,63.007
+8,学生们走在林荫步道，前往这所传统学舍。 ,Students stroll along the tree-lined paths toward this traditional school building.,0.802639,0.765197,0.037442,25.830,41.604
+9,他们和朋友或同学热络聊天走向校舍，不过在一名女学生穿过校门现身的下一剎那，现场的气氛改变了。 ,"They chat animatedly with friends or classmates as they head to class, but the atmosphere changes th",0.921074,0.911140,0.009934,46.663,65.325
+10,看见她的人们一齐展露惊讶与感叹之意，目光追著她的身影而去。 ,"Those who see her simultaneously express surprise and admiration, their gazes following her every mo",0.872110,0.920187,-0.048077,41.526,64.588
+11,「唔哇，那个女生是谁？超漂亮的！」 ,"""Whoa, who's that girl? She's stunning!""",0.932368,0.849108,0.083260,38.802,57.049
+12,「你不知道吗？之前的入学典礼，她不就代表新生致词吗？是那位玛利亚同学的妹妹。」 ,"""You don't know? Didn't she give the speech at the entrance ceremony last year? She's Maria's younge",0.816161,0.853466,-0.037306,47.457,81.792
+13,「那时候只有远远看著她……哇，我的天。近看简直像是精灵。」 ,"""I only saw her from afar back then... Wow, my goodness. Up close, she looks like an elf.""",0.856587,0.896651,-0.040064,35.909,57.791
+14,「一点都没错。我和她同性又大她一届，却也有点被她的美貌折服。」 ,"""You're so right. I'm the same gender as her and a year older, yet even I'm captivated by her beauty",0.944629,0.963103,-0.018474,26.820,57.214
+15,土生土长的日本人不可能拥有这种白皙到像是透光的肌肤，眼角细长的蓝色双眼散发蓝宝石般的光辉。 ,"A native Japanese person couldn't possibly have skin so pale it seems translucent, nor eyes so finel",0.899385,0.914290,-0.014905,49.799,92.041
+16,还有反射朝阳闪闪发亮，绑成公主头的银色长发。 ,"And then there's her silver hair, styled in a princess braid, shimmering brilliantly in the morning ",0.925284,0.932924,-0.007640,49.728,91.023
+17,从她遗传自俄罗斯父亲的深邃五官，隐约感觉得到日本母亲所遗传日式娇柔气息的美貌。 ,Her deeply set features inherited from her Russian father subtly hint at the delicate Japanese charm,0.758224,0.779651,-0.021427,42.925,63.409
+18,无与伦比的容貌，加上以女生标准来说偏高的身高与修长四肢，而且线条玲珑有致，就像是实现世间女性理想的姣好身材。 ,"An unparalleled appearance, combined with a height above average for girls, slender limbs, and a per",0.904800,0.918376,-0.013576,39.314,65.264
+19,由于色彩特别，使得美貌看起来彷佛超脱尘世的她，名为艾莉莎·米哈伊罗夫纳·九条。去年国三的她转学进入这所征岭学园之后，每次考试都是全年级第一，而且运动万能，还从今年起担任学生会的会计，真的是名副其实被誉,"Her extraordinary beauty, almost otherworldly in its ethereal quality, belongs to Alisa Mikhailovna ",0.919476,0.926799,-0.007323,42.993,84.762
+20,「喂，你看那里。」 ,"""Hey, look over there.""",0.713530,0.754056,-0.040526,67.600,90.507
+21,「咦？唔喔！是九条同学耶！一大早运气就这么好！」 ,"""Huh? Whoa! It's Kujo-san! Lucky me to see her first thing in the morning!""",0.794746,0.823770,-0.029023,66.438,92.508
+22,「我说啊，你去向她打个招呼吧。」 ,"""Hey, why don't you go say hello?""",0.757871,0.782425,-0.024554,45.594,69.473
+23,「不可能不可能！我哪敢啊！」 ,"""No way, no way! How could I?""",0.924237,0.875066,0.049170,41.924,54.260
+24,「喂喂喂，这不像是平常看见美少女都会搭讪的你喔，只是去打个招呼，难道你怕了？」 ,"""Come on, this isn't like you, always hitting on beautiful girls. It's just a greeting—what, are you",0.898015,0.903055,-0.005040,50.483,84.148
+25,「笨蛋！她的水准……应该说次元不一样！既然这么说，那你自己去啊！」 ,"""You idiot! Her level... I mean, it's on another dimension! If that's how you feel, then you go!""",0.744901,0.829365,-0.084464,29.434,53.037
+26,「我才不要。我可不想出糗被别的男生盯上。」 ,"""No way. I don't want to embarrass myself and get stared at by other guys.""",0.844000,0.829511,0.014488,47.035,70.220
+27,不分男女，周围都向她投以羡慕的眼神。众人自然放慢脚步往两侧回避，她若无其事从容前进。 ,"Both boys and girls around her cast envious glances. Naturally, everyone slows down and steps aside,",0.801803,0.793567,0.008236,70.153,92.762
+28,此时，一名男学生走向她。周围的学生们一看见这个人就议论纷纷。 ,"At that moment, a male student approaches her. As soon as the surrounding students spot him, murmurs",0.723395,0.782646,-0.059251,60.674,78.300
+29,「嗨，早安。真是清爽的早晨啊。」 ,"""Hi, good morning. What a refreshing morning, isn't it?""",0.826656,0.909745,-0.083089,60.590,88.882
+30,男学生说完露出爽朗笑容，艾莉莎没停下脚步朝他一瞥，从领带颜色确认是学长之后稍微点头致意。 ,"The male student says this with a bright smile, and Alisa, without stopping, glances at him briefly,",0.804617,0.859374,-0.054757,76.580,82.530
+31,「学长早安。」 ,"""Good morning, senpai.""",0.617174,0.798190,-0.181016,66.312,85.507
+32,「嗯，早安。算是初次见面吧？我是二年级的安藤，你姊姊的同班同学。」 ,"""Yeah, good morning. Nice to meet you—I'm Ando, a second-year, and I'm in the same class as your sis",0.857246,0.852392,0.004854,26.559,45.406
+33,「这样啊。」 ,"""I see.""",0.630260,0.653188,-0.022927,39.515,54.087
+34,自称安藤的男学生头发染成褐色，制服穿得不太整齐，从衣领看得见银色饰品，感觉算是现代风格的时尚潮男而且相当英俊，但是艾莉莎反应冷漠。 ,"The male student who introduced himself as Ando has brown-dyed hair, his uniform slightly disheveled",0.762907,0.866663,-0.103756,32.224,40.869
+35,男学生的迷人笑容令周围女生娇羞尖叫，艾莉莎则是面不改色平淡应对。 ,"While the male student's charming smile makes the girls around him squeal with delight, Alisa remain",0.614070,0.717478,-0.103408,52.985,97.457
+36,「我经常听你姊姊提到你的事……早就想见你一面了。如何？方便的话午休时间一起吃个饭吧？」 ,"""I've often heard your sister talk about you... I've been wanting to meet you for a while now. How a",0.723772,0.856963,-0.133191,38.777,53.802
+37,「不，免了。」 ,"""No, thanks.""",0.767931,0.810960,-0.043029,44.782,47.946
+38,她丝毫不显犹豫就立刻回答。面对如此冷漠的回应，安藤也稍微露出苦笑。 ,"She answers immediately, without the slightest hesitation. Faced with such a cool response, Ando can",0.811367,0.841487,-0.030119,41.737,66.413
+39,「哈哈……真冷淡耶。既然这样，至少交换连络方式好吗？我想更认识你。」 ,"""Haha... So cold. Well then, at least let's exchange contact info? I'd like to get to know you bette",0.768109,0.796048,-0.027938,37.332,56.012
+40,「不好意思，我对你没有兴趣。如果找我只是为了这件事，那我要告辞了。啊，还有──」 ,"""I'm sorry, but I'm not interested in you. If you're only looking for that, then I'll be taking my l",0.862383,0.915735,-0.053353,38.603,54.591
+41,此时艾莉莎视线朝向安藤，伸手指向他的脖子。面对斜看过来的冷漠双眼与比向自己的细长手指，安藤不禁收起笑容，睁大眼睛稍微往后仰。 ,"At this point, Alisa shifts her gaze toward Ando, pointing a finger at his neck. Facing her cold, pi",0.841552,0.844045,-0.002493,49.653,96.291
+42,「……那个，违反校规了。」 ,"""...That's against the school rules.""",0.864652,0.934562,-0.069910,38.627,63.771
+43,艾莉莎无视于安藤的慌张，指著他脖子的银色饰品冰冷出言警告，然后只说声「失陪了」就快步离开。这幅光景使得周围屏息旁观至今的学生们再度议论纷纷。 ,"Ignoring Ando's fluster, Alisa coldly warns him about the silver accessory around his neck, then sim",0.693971,0.759467,-0.065495,28.318,48.792
+44,「好厉害，二年级最受女生欢迎的那位安藤学长都被一口回绝了。感觉真的像是孤傲的公主大人耶。」 ,"""Wow, even Ando-senpai, the most popular guy among the girls in second year, got rejected outright. ",0.801804,0.861616,-0.059812,34.678,53.140
+45,「她的理想标准到底多高啊……有男生配得上她吗？」 ,"""Just how high are her standards... Is there any guy who could ever measure up?""",0.654936,0.658969,-0.004033,75.937,112.477
+46,「说起来她根本对男生没兴趣吧？明明那么漂亮，太可惜了。」 ,"""Come to think of it, she's probably not interested in guys at all. Such a waste, being so beautiful",0.726553,0.736028,-0.009475,60.599,73.624
+47,「不对不对，她不属于任何人，我们反倒可以放心吧？」 ,"""No, no, she doesn't belong to anyone, which actually puts our minds at ease, doesn't it?""",0.660484,0.756336,-0.095852,43.838,71.755
+48,「是啊。从偶像的意义来说，她比一般的偶像还要偶像得多。要我一辈子看她都没问题，甚至可以膜拜她。」 ,"""That's right. In terms of being an idol, she's more of an idol than any regular idol. I'd be fine w",0.692918,0.717328,-0.024411,41.718,72.711
