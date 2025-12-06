@@ -1,71 +1,71 @@
 #!/usr/bin/env python3
 """
-Tools Package - 快速工具集
+Tools Package - Quick Toolset
 
-此目录包含用于快速测试和分析的命令行工具。
-这些工具无需编写复杂代码，可直接使用项目功能。
+This directory contains command-line tools for quick testing and analysis.
+These tools can be used directly without writing complex code to utilize project features.
 
-工具列表:
+Tool list:
 
-1. similarity.py - 文本相似度工具
-   快速计算两段文本的相似度，支持两种编码方法对比。
+1. similarity.py - Text similarity tool
+   Quickly calculate the similarity between two texts, supporting comparison of two encoding methods.
 
-   用法:
+   Usage:
      python tools/similarity.py "Source text" "Target text"
      python tools/similarity.py --method sentence "Source" "Target"
      python tools/similarity.py --compare "Source" "Target"
 
-   特性:
-     • 支持整段编码和句子编码两种方法
-     • 可直接对比两种方法的差异
-     • 自动计算标点权重
+   Features:
+     • Supports both paragraph encoding and sentence encoding methods
+     • Can directly compare the differences between the two methods
+     • Automatically calculates punctuation weight
 
-2. encoding_analyzer.py - 编码方法分析工具
-   深入分析两种编码方法的性能和特性，支持测试模式。
+2. encoding_analyzer.py - Encoding method analysis tool
+   Deeply analyze the performance and characteristics of two encoding methods, supporting test mode.
 
-   用法:
+   Usage:
      python tools/encoding_analyzer.py "Text 1" "Text 2"
      python tools/encoding_analyzer.py --detailed "Text 1" "Text 2"
      python tools/encoding_analyzer.py --file source.txt target.txt
-     python tools/encoding_analyzer.py --test  # 运行编码方法测试
+     python tools/encoding_analyzer.py --test  # Run encoding method test
 
-   特性:
-     • 文本语言特性分析（句子数、长度等）
-     • 编码性能基准测试
-     • 相似度对比和改进百分比
-     • 编码方法功能测试
-     • 详细推荐建议
+   Features:
+     • Text language feature analysis (number of sentences, length, etc.)
+     • Encoding performance benchmark testing
+     • Similarity comparison and improvement percentage
+     • Encoding method function testing
+     • Detailed recommendation suggestions
 
-3. punctuation_analyzer.py - 标点符号分析工具
-   分析文本的标点符号特性和权重影响。
+3. punctuation_analyzer.py - Punctuation analysis tool
+   Analyze the punctuation characteristics and weight impact of texts.
 
-   用法:
+   Usage:
      python tools/punctuation_analyzer.py "Text with punctuation."
      python tools/punctuation_analyzer.py --compare "Text 1" "Text 2"
      python tools/punctuation_analyzer.py --file corpus.txt
 
-   特性:
-     • 标点符号统计（中文/英文分类）
-     • 标点权重计算
-     • 文件级别的标点分布分析
-     • 权重影响解释
+   Features:
+     • Punctuation statistics (Chinese/English classification)
+     • Punctuation weight calculation
+     • File-level punctuation distribution analysis
+     • Weight impact explanation
 
-快速开始示例:
+Quick start examples:
 
-# 快速相似度查询
+# Quick similarity query
 python tools/similarity.py "The quick fox" "快速的狐狸"
 
-# 对比编码方法
+# Compare encoding methods
 python tools/similarity.py --compare "Hello world" "你好世界"
 
-# 详细性能分析
+# Detailed performance analysis
 python tools/encoding_analyzer.py --detailed "Source text" "Target text"
 
-# 运行编码方法测试
+# Run encoding method test
 python tools/encoding_analyzer.py --test
 
-# 分析文件的标点特性
+# Analyze punctuation characteristics of file
 python tools/punctuation_analyzer.py --file corpus.txt
 
-所有工具都支持 --help 获取详细帮助信息。
+All tools support --help for detailed help information.
 """

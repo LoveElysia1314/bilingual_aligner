@@ -1,27 +1,31 @@
 """
 Single-Stage Dynamic Programming Algorithm for Bilingual Text Alignment.
 
-Optimized algorithm using pruning-based path enumeration (pruning theorem).
+This implementation computes a stable set of reachable nodes using hard
+bandwidth constraints and node-level soft filtering, then runs a standard
+DAG DP (level-by-level) to obtain a single optimal alignment path that
+maximizes the total similarity (sum of edge weights). Average similarity
+is computed after path extraction for reporting. Although earlier design
+notes reference enumeration and pruning theorems, this version performs
+a single-pass DP with parent pointers and returns the optimal path;
+enumeration/branch-and-bound style enumeration and early-stop logic are
+not implemented here.
 
 Core Design:
-1. Phase 1: Compute stable reachable node set with:
-   - Hard constraints: ceil(i/2) <= j <= 2i, ceil((n-i)/2) <= m-j <= 2(n-i)
-   - Soft constraints (node-level, uniform treatment):
-         * All nodes evaluated based on best outgoing operation score
-         * No discrimination between operation types (1:1, 2:1, 1:2)
-   - Forward/backward reachability filtering for stability
+1. Phase 0: Compute stable reachable node set with:
+    - Hard constraints: ceil(i/2) <= j <= 2*i, ceil((n-i)/2) <= m-j <= 2*(n-i)
+    - Node-level soft constraints based on per-line 1:1 best similarities
+    - Forward/backward reachability filtering until convergence
 
-2. Phase 2: Maximize average similarity (primary objective)
-        - Single-stage DP with pruning-based enumeration
-        - Pure quality optimization based on average similarity
-        - Enumeration with pruning theorem for efficient search
-        - Fair treatment of all operation types
+2. Phase 1: Compute edge weights and run standard DAG DP (level order)
+    to obtain a single best path (max total similarity) and convert it to
+    alignment operations. Final structural checks are applied afterwards.
 
-Benefits:
-- Fair treatment across all alignment operation types
-- Maximizes alignment quality by average similarity
-- Efficient pruning with early stop mechanism
-- Final validation for structural consistency
+Notes:
+- Node-level soft filtering treats all operation types uniformly.
+- This file documents and implements the current DP behavior (single
+  optimal path). If enumeration/early-stopping is desired in future,
+  extend the DP stage accordingly.
 """
 
 from dataclasses import dataclass
@@ -82,27 +86,22 @@ class AlignmentStep:
 
 
 @dataclass
-class DPAligner:
+class EnumPruningAligner:
     """
     Single-Stage Dynamic Programming algorithm for bilingual alignment.
 
-    Uses pruning-based enumeration (pruning theorem) to find optimal alignment:
-    1. Maximize average similarity (Σ W_i / num_ops)
-    2. Fair treatment of all operation types (1:1, 2:1, 1:2)
-    3. Early stop when current best cannot be beaten by remaining candidates
-
-    Soft constraints (node-level, uniform):
-    - All nodes evaluated equally based on best outgoing operation score
-    - No static penalty or discrimination by operation type
+    Implements node-level soft constraints and a standard DAG DP to find
+    the single best alignment path (maximizing total similarity — the sum of edge weights).
+    Average similarity is computed after path extraction for reporting.
+    Soft constraints treat all operation types uniformly and do not
+    implement operation-type penalties here.
     """
 
     # Soft constraint parameters (Optimized v2.1)
-    MIN_QUALITY_THRESHOLD = 0.75  # T_min: minimum average similarity
-    NON_ONE_TO_ONE_PENALTY = 0.0  # No static penalty
     # CONSECUTIVE_NON_1TO1_PENALTY_MAX removed - final structural validation will raise exception when applicable
     CONSECUTIVE_NON_1TO1_LOOKAHEAD = 5  # Lookahead steps for consecutive detection
     # Node-level relative threshold (fraction of best 1:1 score for involved lines)
-    NODE_RELATIVE_THRESHOLD = 0.75
+    NODE_RELATIVE_THRESHOLD = 0.8
 
     def __init__(self, corpus, config):
         self.corpus = corpus
@@ -120,12 +119,15 @@ class DPAligner:
         self.node_relative_threshold = config.get(
             "node_relative_threshold", self.NODE_RELATIVE_THRESHOLD
         )
+        # Collect structural exceptions found during validation (no longer raise)
+        self.structural_exceptions: List[str] = []
 
     def run(self) -> List[AlignmentStep]:
         """
         Execute single-stage DP algorithm with fair treatment of all operation types.
 
-        Maximizes average similarity without discriminating between 1:1, 2:1, and 1:2 operations.
+        Maximizes total similarity (sum of edge weights) without discriminating between 1:1, 2:1, and 1:2 operations.
+        Note: average similarity is computed after path extraction for reporting; the DP objective is total sum.
 
         Returns:
                 List of alignment steps (complete path from source 0 to src_len, target 0 to tgt_len)
@@ -158,34 +160,48 @@ class DPAligner:
         edges = self._compute_edge_weights(stable_nodes)
         self.logger.info(f"Computed {len(edges)} edges")
 
-        # Stage 1: Find optimal path maximizing average similarity
-        self.logger.info("\n" + "=" * 70)
-        self.logger.info("Stage 1: Find Optimal Path (Maximize Average Similarity)")
-        self.logger.info("=" * 70)
-
-        best_ops, search_stats = self._run_stage1_with_penalty_sorting(
+        best_ops, search_stats = self._run_stage1_dp_single_path(
             stable_nodes, edges
         )
+
+        # Compute and log node ratio statistics for selected path nodes
+        selected_nodes = self._extract_path_nodes(best_ops)
+        node_ratio_stats = self._compute_node_ratios_stats(selected_nodes, hard_nodes)
 
         total_score = sum(op.score for op in best_ops)
         avg_sim = total_score / len(best_ops) if best_ops else 0.0
 
-        self.logger.info(f"✓ Optimal path found (with early stop)")
+        self.logger.info(f"✓ Optimal path found")
         self.logger.info(f"  Operations: {len(best_ops)}")
         self.logger.info(f"  Total score: {total_score:.6f}")
         self.logger.info(f"  Average similarity: {avg_sim:.6f}")
         self.logger.info(f"  Paths checked: {search_stats['paths_checked']}")
-        self.logger.info(f"  Early stop triggered: {search_stats['early_stop']}")
+        self.logger.info(f"  Early stop supported: {search_stats['early_stop']}")
 
         # Final validation: raise if final operations contain consecutive different non-1:1
         # within lookahead distance (this moves rejecting to final check).
         self._validate_final_ops_raise_on_consecutive_non_1to1(best_ops)
 
-        # Return results in compatible format
+        # Collect DP debug statistics to return alongside operations
+        dp_stats = {
+            "S_all": len(hard_nodes),
+            "S_prime": len(soft_nodes),
+            "S_star": len(stable_nodes),
+            "edges_count": len(edges),
+            "selected_path_nodes": len(selected_nodes),
+        }
+
+        # Merge node ratio stats if available
+        if node_ratio_stats:
+            dp_stats.update(node_ratio_stats)
+
+        # Return results in compatible format (including dp_stats)
         return {
             "stage1": best_ops,
             "stage2": best_ops,  # For backward compatibility
             "T_max": avg_sim,
+            "dp_stats": dp_stats,
+            "structural_exceptions": self.structural_exceptions,
         }
 
     def _compute_hard_constraint_nodes(self) -> Set[Tuple[int, int]]:
@@ -225,7 +241,8 @@ class DPAligner:
         - For each target line index t, record `tgt_best[t]` = max 1:1 score where target==t.
         - For each node (i,j) compute the node score = max raw similarity across its possible
           outgoing operations (1:1, 2:1, 1:2).
-        - For the node, take `element_best` = max(src_best[i] if i < src_len, tgt_best[j] if j < tgt_len).
+                - For the node, take `element_best` = min(src_best[i] if i < src_len, tgt_best[j] if j < tgt_len)
+                    (if both sides available). If only one side is available, use that side's best.
         - If node_score < node_relative_threshold * element_best, disable (filter out) this node.
 
         After this node filtering, the stable reachable set computation will be applied by the
@@ -270,14 +287,19 @@ class DPAligner:
                 if raw > best_out_raw:
                     best_out_raw = raw
 
-            # Determine element_best from involved single-line bests
-            element_best = 0.0
-            if i < self.src_len:
-                element_best = max(element_best, src_best[i])
-            if j < self.tgt_len:
-                element_best = max(element_best, tgt_best[j])
+            # Determine element_best from involved single-line bests.
+            # New policy: use the MIN of the two per-element bests when both
+            # are available; if only one side is available, use that side's best.
+            if i < self.src_len and j < self.tgt_len:
+                element_best = min(src_best[i], tgt_best[j])
+            elif i < self.src_len:
+                element_best = src_best[i]
+            elif j < self.tgt_len:
+                element_best = tgt_best[j]
+            else:
+                element_best = 0.0
 
-            # If element_best is zero, we cannot judge; keep the node
+            # If element_best is zero or negative, we cannot judge; keep the node
             if element_best <= 0.0:
                 continue
 
@@ -307,6 +329,129 @@ class DPAligner:
             current = stable
 
         return current
+
+    def _extract_path_nodes(
+        self, operations: List[AlignmentStep]
+    ) -> List[Tuple[int, int]]:
+        """Extract the sequence of nodes visited in the optimal path"""
+        nodes = [(0, 0)]  # Start node
+        current_i, current_j = 0, 0
+
+        for op in operations:
+            # Each operation advances by (src_end - src_start + 1, tgt_end - tgt_start + 1)
+            di = op.src_end - op.src_start + 1
+            dj = op.tgt_end - op.tgt_start + 1
+            current_i += di
+            current_j += dj
+            nodes.append((current_i, current_j))
+
+        return nodes
+
+    def _compute_node_ratios_stats(
+        self, selected_nodes: List[Tuple[int, int]], hard_nodes: Set[Tuple[int, int]]
+    ):
+        """Compute and log statistics of node ratios (node_score / element_best) for threshold tuning"""
+        if not selected_nodes:
+            return
+
+        # Compute src_best and tgt_best from hard_nodes (same as in _apply_soft_constraints)
+        src_best = [0.0] * self.src_len
+        tgt_best = [0.0] * self.tgt_len
+
+        for i, j in list(hard_nodes):
+            if i < self.src_len and j < self.tgt_len and (i + 1, j + 1) in hard_nodes:
+                raw = self._score_operation(i, i, j, j)
+                if raw is None:
+                    raw = 0.0
+                if raw > src_best[i]:
+                    src_best[i] = raw
+                if raw > tgt_best[j]:
+                    tgt_best[j] = raw
+
+        # Compute ratios for selected path nodes
+        ratios = []
+        for i, j in selected_nodes:
+            # Compute node score: best outgoing operation raw similarity
+            best_out_raw = 0.0
+            for di, dj in [(1, 1), (2, 1), (1, 2)]:
+                ni, nj = i + di, j + dj
+                if (ni, nj) not in hard_nodes:  # Use hard_nodes as possible next nodes
+                    continue
+                raw = self._score_operation(i, ni - 1, j, nj - 1)
+                if raw is None:
+                    raw = 0.0
+                if raw > best_out_raw:
+                    best_out_raw = raw
+
+            # Determine element_best
+            # New policy: element_best is the MIN of the per-element bests when
+            # both are available; otherwise fall back to the available side.
+            if i < self.src_len and j < self.tgt_len:
+                element_best = min(src_best[i], tgt_best[j])
+            elif i < self.src_len:
+                element_best = src_best[i]
+            elif j < self.tgt_len:
+                element_best = tgt_best[j]
+            else:
+                element_best = 0.0
+
+            if element_best > 0.0:
+                ratio = best_out_raw / element_best
+                ratios.append(ratio)
+
+        if ratios:
+            ratios_array = np.array(ratios)
+            mean_ratio = np.mean(ratios_array)
+            std_ratio = np.std(ratios_array)
+            min_ratio = np.min(ratios_array)
+            max_ratio = np.max(ratios_array)
+            percentile_1 = np.percentile(ratios_array, 1)
+            percentile_5 = np.percentile(ratios_array, 5)
+            percentile_10 = np.percentile(ratios_array, 10)
+            percentile_25 = np.percentile(ratios_array, 25)
+            percentile_50 = np.percentile(ratios_array, 50)
+            percentile_75 = np.percentile(ratios_array, 75)
+            percentile_95 = np.percentile(ratios_array, 95)
+            percentile_99 = np.percentile(ratios_array, 99)
+
+            # Stage 1: Find optimal path (DP maximizes total similarity; average reported afterwards)
+            self.logger.info("\n" + "=" * 70)
+            self.logger.info("Stage 1: Find Optimal Path (Maximize Total Similarity; average reported afterwards)")
+            self.logger.info("=" * 70)
+            self.logger.info(f"Number of selected path nodes: {len(ratios)}")
+            self.logger.info(f"Mean ratio: {mean_ratio:.4f}")
+            self.logger.info(f"Std ratio: {std_ratio:.4f}")
+            self.logger.info(f"Min ratio: {min_ratio:.4f}")
+            self.logger.info(f"Max ratio: {max_ratio:.4f}")
+            self.logger.info(f"1% percentile: {percentile_1:.4f}")
+            self.logger.info(f"5% percentile: {percentile_5:.4f}")
+            self.logger.info(f"95% percentile: {percentile_95:.4f}")
+            self.logger.info(f"99% percentile: {percentile_99:.4f}")
+            self.logger.info(f"Current threshold: {self.node_relative_threshold}")
+            self.logger.info(
+                f"Nodes below current threshold: {np.sum(ratios_array < self.node_relative_threshold)} ({100 * np.sum(ratios_array < self.node_relative_threshold) / len(ratios):.1f}%)"
+            )
+
+            # Return collected stats for external consumption
+            return {
+                "selected_nodes_count": len(ratios),
+                "mean_ratio": round(float(mean_ratio), 4),
+                "std_ratio": round(float(std_ratio), 4),
+                "min_ratio": round(float(min_ratio), 4),
+                "max_ratio": round(float(max_ratio), 4),
+                "1%_percentile": round(float(percentile_1), 4),
+                "5%_percentile": round(float(percentile_5), 4),
+                "10%_percentile": round(float(percentile_10), 4),
+                "25%_percentile": round(float(percentile_25), 4),
+                "50%_percentile": round(float(percentile_50), 4),
+                "75%_percentile": round(float(percentile_75), 4),
+                "95%_percentile": round(float(percentile_95), 4),
+                "99%_percentile": round(float(percentile_99), 4),
+                "current_threshold": float(self.node_relative_threshold),
+            }
+
+        # No ratios collected -> return empty dict
+        return {}
 
     def _compute_forward_reachability(
         self, nodes: Set[Tuple[int, int]]
@@ -399,64 +544,6 @@ class DPAligner:
 
         return total_sim / count if count > 0 else 0.0
 
-    def _run_stage1_maximize_score(
-        self,
-        stable_nodes: Set[Tuple[int, int]],
-        edges: Dict[Tuple[Tuple[int, int], Tuple[int, int]], float],
-    ) -> Tuple[float, List[Tuple[int, int]]]:
-        """Stage 1: Find maximum average similarity"""
-        dp = {}
-        parent = {}
-        dp[(0, 0)] = 0.0
-
-        # Process nodes in topological order
-        nodes_by_level = {}
-        for i, j in stable_nodes:
-            level = i + j
-            if level not in nodes_by_level:
-                nodes_by_level[level] = []
-            nodes_by_level[level].append((i, j))
-
-        for level in sorted(nodes_by_level.keys()):
-            for i, j in nodes_by_level[level]:
-                if (i, j) not in dp:
-                    continue
-
-                current_sum = dp[(i, j)]
-
-                for di, dj in [(2, 1), (1, 2), (1, 1)]:
-                    ni, nj = i + di, j + dj
-
-                    if (ni, nj) not in stable_nodes:
-                        continue
-
-                    edge_key = ((i, j), (ni, nj))
-                    if edge_key not in edges:
-                        continue
-
-                    weight = edges[edge_key]
-                    new_sum = current_sum + weight
-
-                    if (ni, nj) not in dp or new_sum > dp[(ni, nj)]:
-                        dp[(ni, nj)] = new_sum
-                        parent[(ni, nj)] = (i, j)
-
-        # Reconstruct path
-        path = []
-        current = (self.src_len, self.tgt_len)
-        while current in parent:
-            path.append(current)
-            current = parent[current]
-        path.append((0, 0))
-        path.reverse()
-
-        # Calculate average similarity
-        total_score = dp.get((self.src_len, self.tgt_len), 0.0)
-        num_operations = len(path) - 1
-        avg_similarity = total_score / num_operations if num_operations > 0 else 0.0
-
-        return avg_similarity, path
-
     def _extract_operations(
         self,
         path: List[Tuple[int, int]],
@@ -507,8 +594,11 @@ class DPAligner:
         self, ops: List[AlignmentStep]
     ) -> None:
         """
-        Validate final operations and raise ConsecutiveNonOneToOneError if
+        Validate final operations and RECORD ConsecutiveNonOneToOne issues if
         consecutive different non-1:1 operations are found within lookahead.
+
+        Changed behavior: do not raise; append a readable message to
+        `self.structural_exceptions` for later reporting.
         """
         last_non_1to1_type = None
         last_non_1to1_idx = None
@@ -529,41 +619,57 @@ class DPAligner:
                 ):
                     distance = idx - last_non_1to1_idx
                     if distance <= self.consecutive_non_1to1_lookahead:
-                        raise ConsecutiveNonOneToOneError(
-                            last_non_1to1_idx,
-                            idx,
-                            last_non_1to1_type,
-                            op_type,
-                            distance,
-                        )
+                        # Build a readable message and record it instead of raising
+                        try:
+                            prev_op = ops[last_non_1to1_idx]
+                            cur_op = op
+                            msg = (
+                                f"Consecutive different non-1:1 operations detected: "
+                                f"op{last_non_1to1_idx} ({last_non_1to1_type[0]}:{last_non_1to1_type[1]}) "
+                                f"and op{idx} ({op_type[0]}:{op_type[1]}) at distance {distance}; "
+                                f"src[{prev_op.src_start}:{prev_op.src_end}]->tgt[{prev_op.tgt_start}:{prev_op.tgt_end}] vs "
+                                f"src[{cur_op.src_start}:{cur_op.src_end}]->tgt[{cur_op.tgt_start}:{cur_op.tgt_end}]"
+                            )
+                        except Exception:
+                            msg = (
+                                f"Consecutive different non-1:1 operations: indices {last_non_1to1_idx} and {idx} "
+                                f"types {last_non_1to1_type} vs {op_type} distance {distance}"
+                            )
+
+                        self.structural_exceptions.append(msg)
+                        # Log as warning for visibility
+                        try:
+                            logging.getLogger(__name__).warning(msg)
+                        except Exception:
+                            pass
 
                 last_non_1to1_type = op_type
                 last_non_1to1_idx = idx
 
-    def _run_stage1_with_penalty_sorting(
+    def _run_stage1_dp_single_path(
         self,
         stable_nodes: Set[Tuple[int, int]],
         edges: Dict[Tuple[Tuple[int, int], Tuple[int, int]], float],
     ) -> Tuple[List[AlignmentStep], Dict]:
         """
-        Single-stage DP with pruning theorem (v3.0).
+        Stage 1: Standard DAG DP that computes the single best complete path.
 
-        Algorithm:
-        1. Run standard DP to get dp[(i,j)] = total_score
-        2. Enumerate paths in order of score (descending)
-        3. Track maximum average similarity seen
-        4. EARLY STOP when no remaining path can beat current best
-        5. Return best path found
+        Implementation details:
+        - Runs a level-ordered DP to compute `dp[(i,j)]` = maximum total score
+          to reach node (i,j) using available `edges` on `stable_nodes`.
+        - Maintains `parent` pointers to reconstruct the single best path to
+          the target node `(src_len, tgt_len)` if available.
+        - Converts the reconstructed node sequence into `AlignmentStep`s and
+          returns that single best operation sequence.
 
-        Mathematical Guarantee:
-        - Paths sorted by score descending
-        - For any remaining path: score ≤ previous score
-        - Maximum possible avg_sim for remaining paths ≤ previous score / min_ops
-        - If current best avg_sim > this upper bound, stop early
+        Note: This function returns only one optimal path (the path implied
+        by the DP parent pointers). Enumeration of multiple complete paths
+        or branch-and-bound early-stopping is NOT implemented here.
 
         Returns:
-                (best_operations, {'paths_checked': int, 'early_stop': bool})
+            (best_operations, {'paths_checked': int, 'early_stop': bool})
         """
+
         # Step 1: Run standard DP to get all scores
         dp = {}
         parent = {}
@@ -631,7 +737,7 @@ class DPAligner:
 
         if all_paths_with_scores:
             paths_checked = 1
-            score, path_nodes, final_node = all_paths_with_scores[0]
+            score, path_nodes = all_paths_with_scores[0][:2]
 
             # Convert node sequence to operations
             ops = self._extract_operations(path_nodes, edges)

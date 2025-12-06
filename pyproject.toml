@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bilingual-aligner"
-version = "0.5.0"
+version = "0.6.0"
 description = "A library for bilingual text alignment and repair"
 authors = [
     {name = "Elysia", email = "dr.zqr@outlook.com"},

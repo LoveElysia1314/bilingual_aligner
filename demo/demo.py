@@ -52,7 +52,7 @@ def main():
     output_dir.mkdir(exist_ok=True)
 
     # Initialize the aligner with custom configuration
-    config = {}
+    config = {"node_relative_threshold": 0.8}  # Test different threshold values
 
     # Direct API call
     aligner = TextAligner(str(source_file), str(target_file), **config)

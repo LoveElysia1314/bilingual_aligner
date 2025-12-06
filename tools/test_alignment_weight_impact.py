@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-专门测试错位对齐对标点相似度权重影响的工具
+Tool specifically for testing the impact of misalignment on punctuation similarity weights
 
-测试内容：
-1. 正确对齐的标点相似度权重基准
-2. 各种错位模式的标点相似度权重降低
-3. 标点数统计
-4. 偏差统计对比：标准方法 vs 根号分母方法
+Test content:
+1. Baseline punctuation similarity weights for correct alignment
+2. Reduction in punctuation similarity weights for various misalignment modes
+3. Punctuation count statistics
+4. Deviation statistics comparison: standard method vs square root denominator method
 
-使用方法：
+Usage:
     python test_misalignment_impact.py
 """
 
@@ -16,7 +16,6 @@ import sys
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import gaussian_kde
 
 # Add project to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -28,15 +27,15 @@ from bilingual_aligner.core.punctuation import (
 
 
 def load_sample_texts():
-    """加载样本文本，过滤空行"""
+    """Load sample texts, filter empty lines"""
     try:
-        # 原文：中文
+        # Source: Chinese
         with open(
             Path(__file__).parent / "demo" / "sample_zh.md", "r", encoding="utf-8"
         ) as f:
             zh_lines = [line.strip() for line in f.readlines() if line.strip()]
 
-        # 译文：英文（repaired）
+        # Translation: English (repaired)
         with open(
             Path(__file__).parent / "demo" / "output" / "sample_en_repaired.txt",
             "r",
@@ -44,34 +43,34 @@ def load_sample_texts():
         ) as f:
             en_lines = [line.strip() for line in f.readlines() if line.strip()]
 
-        # 匹配两个文件的行数（统计全文）
+        # Match the number of lines in both files (count full text)
         n_lines = min(len(en_lines), len(zh_lines))
         print(f"加载全文：{n_lines} 对句子")
         return en_lines[:n_lines], zh_lines[:n_lines]
     except FileNotFoundError as e:
-        print(f"错误：找不到样本文件 {e}")
+        print(f"Error: Sample file not found {e}")
         return None, None
 
 
 def calculate_punctuation_stats_and_weights(en_lines, zh_lines):
-    """计算标点数统计和各种对齐模式的标点相似度权重"""
+    """Calculate punctuation statistics and punctuation similarity weights for various alignment modes"""
     n_lines = len(en_lines)
 
-    # 存储标点数
+    # Store punctuation counts
     en_punct_counts = []
     zh_punct_counts = []
 
-    # 正确对齐权重
+    # Correct alignment weights
     correct_weights = []
 
-    # 错位权重
+    # Misalignment weights
     misalignment_weights = {
         "ZH[i] vs EN[i+1]": [],
         "ZH[i]+ZH[i+1] vs EN[i]": [],
         "EN[i] vs ZH[i+1]": [],
     }
 
-    # 计算标点数和正确对齐权重
+    # Calculate punctuation counts and correct alignment weights
     for i in range(n_lines):
         en_punct = PunctuationHandler.count_punctuation_line(en_lines[i])
         zh_punct = PunctuationHandler.count_punctuation_line(zh_lines[i])
@@ -82,7 +81,7 @@ def calculate_punctuation_stats_and_weights(en_lines, zh_lines):
         weight = calculate_punctuation_similarity(zh_lines[i], en_lines[i])
         correct_weights.append(weight)
 
-    # 计算错位权重
+    # Calculate misalignment weights
     for i in range(n_lines):
         # ZH[i] vs EN[i+1]
         tgt_idx = (i + 1) % n_lines
@@ -105,31 +104,33 @@ def calculate_punctuation_stats_and_weights(en_lines, zh_lines):
 def analyze_results(
     en_punct_counts, zh_punct_counts, correct_weights, misalignment_weights
 ):
-    """分析和显示结果，包括概率密度图"""
-    print("标点相似度权重测试结果")
+    """Analyze and display results, including probability density plots"""
+    print("Punctuation similarity weight test results")
     print("=" * 80)
 
-    # 标点数统计
-    print("标点数统计:")
-    print(f"  英文总标点数: {sum(en_punct_counts)}")
-    print(f"  中文总标点数: {sum(zh_punct_counts)}")
+    # Punctuation count statistics
+    print("Punctuation count statistics:")
+    print(f"  Total English punctuation: {sum(en_punct_counts)}")
+    print(f"  Total Chinese punctuation: {sum(zh_punct_counts)}")
     print(
-        f"  英文平均标点数: {np.mean(en_punct_counts):.2f} ± {np.std(en_punct_counts):.2f}"
+        f"  Average English punctuation: {np.mean(en_punct_counts):.2f} ± {np.std(en_punct_counts):.2f}"
     )
     print(
-        f"  中文平均标点数: {np.mean(zh_punct_counts):.2f} ± {np.std(zh_punct_counts):.2f}"
+        f"  Average Chinese punctuation: {np.mean(zh_punct_counts):.2f} ± {np.std(zh_punct_counts):.2f}"
     )
-    print(f"  测试样本数: {len(correct_weights)} 对")
+    print(f"  Test sample pairs: {len(correct_weights)}")
     print()
 
-    # 计算偏差（不取绝对值）和平均标点数
-    deviations = []  # 有符号的偏差：(EN - ZH) / avg
-    deviations_sqrt = []  # 取分母根号的偏差：(EN - ZH) / sqrt(avg)
-    deviations_const = []  # 分母为定值的偏差：(EN - ZH) / C（C为全局平均）
-    absolute_deviations = []  # 绝对偏差：|EN - ZH|
+    # Calculate deviations (without absolute value) and average punctuation counts
+    deviations = []  # Signed deviations: (EN - ZH) / avg
+    deviations_sqrt = []  # Square root denominator deviations: (EN - ZH) / sqrt(avg)
+    deviations_const = (
+        []
+    )  # Constant denominator deviations: (EN - ZH) / C (C is global average)
+    absolute_deviations = []  # Absolute deviations: |EN - ZH|
     avg_puncts = []
 
-    # 计算全局平均值作为定值分母
+    # Calculate global average as constant denominator
     global_avg = np.mean(
         [
             (en_punct_counts[i] + zh_punct_counts[i]) / 2.0
@@ -144,13 +145,15 @@ def analyze_results(
         abs_diff = abs(en_punct - zh_punct)
 
         if avg_punct > 0:
-            deviation = (en_punct - zh_punct) / avg_punct  # 相对偏差：(EN - ZH) / avg
+            deviation = (
+                en_punct - zh_punct
+            ) / avg_punct  # Relative deviation: (EN - ZH) / avg
             deviation_sqrt = (en_punct - zh_punct) / np.sqrt(
                 avg_punct
-            )  # 根号偏差：(EN - ZH) / sqrt(avg)
+            )  # Square root deviation: (EN - ZH) / sqrt(avg)
             deviation_const = (
                 (en_punct - zh_punct) / global_avg if global_avg > 0 else 0
-            )  # 定值分母：(EN - ZH) / C
+            )  # Constant denominator: (EN - ZH) / C
 
             deviations.append(deviation)
             deviations_sqrt.append(deviation_sqrt)
@@ -158,66 +161,72 @@ def analyze_results(
             absolute_deviations.append(abs_diff)
             avg_puncts.append(avg_punct)
 
-    print("偏差统计对比：")
-    print(f"\n全局平均标点数（作为定值分母C）: {global_avg:.4f}")
+    print("Deviation statistics comparison:")
+    print(f"\nGlobal average punctuation (as constant denominator C): {global_avg:.4f}")
 
-    print("\n1. 标准相对偏差 (EN - ZH) / avg：")
-    print(f"  平均: {np.mean(deviations):.4f} ± {np.std(deviations):.4f}")
-    print(f"  范围: min={min(deviations):.4f}, max={max(deviations):.4f}")
+    print("\n1. Standard relative deviation (EN - ZH) / avg:")
+    print(f"  Mean: {np.mean(deviations):.4f} ± {np.std(deviations):.4f}")
+    print(f"  Range: min={min(deviations):.4f}, max={max(deviations):.4f}")
     print(
-        f"  绝对值平均: {np.mean(np.abs(deviations)):.4f} ± {np.std(np.abs(deviations)):.4f}"
-    )
-
-    print("\n2. 根号分母偏差 (EN - ZH) / sqrt(avg)：")
-    print(f"  平均: {np.mean(deviations_sqrt):.4f} ± {np.std(deviations_sqrt):.4f}")
-    print(f"  范围: min={min(deviations_sqrt):.4f}, max={max(deviations_sqrt):.4f}")
-    print(
-        f"  绝对值平均: {np.mean(np.abs(deviations_sqrt)):.4f} ± {np.std(np.abs(deviations_sqrt)):.4f}"
+        f"  Absolute mean: {np.mean(np.abs(deviations)):.4f} ± {np.std(np.abs(deviations)):.4f}"
     )
 
-    print("\n3. 定值分母偏差 (EN - ZH) / C（C={:.4f}）：".format(global_avg))
-    print(f"  平均: {np.mean(deviations_const):.4f} ± {np.std(deviations_const):.4f}")
-    print(f"  范围: min={min(deviations_const):.4f}, max={max(deviations_const):.4f}")
+    print("\n2. Square root denominator deviation (EN - ZH) / sqrt(avg):")
+    print(f"  Mean: {np.mean(deviations_sqrt):.4f} ± {np.std(deviations_sqrt):.4f}")
+    print(f"  Range: min={min(deviations_sqrt):.4f}, max={max(deviations_sqrt):.4f}")
     print(
-        f"  绝对值平均: {np.mean(np.abs(deviations_const)):.4f} ± {np.std(np.abs(deviations_const)):.4f}"
+        f"  Absolute mean: {np.mean(np.abs(deviations_sqrt)):.4f} ± {np.std(np.abs(deviations_sqrt)):.4f}"
     )
 
-    print("\n4. 绝对偏差 |EN - ZH|（不做任何归一化）：")
     print(
-        f"  平均: {np.mean(absolute_deviations):.4f} ± {np.std(absolute_deviations):.4f}"
+        "\n3. Constant denominator deviation (EN - ZH) / C (C={:.4f}):".format(
+            global_avg
+        )
     )
+    print(f"  Mean: {np.mean(deviations_const):.4f} ± {np.std(deviations_const):.4f}")
+    print(f"  Range: min={min(deviations_const):.4f}, max={max(deviations_const):.4f}")
     print(
-        f"  范围: min={min(absolute_deviations):.4f}, max={max(absolute_deviations):.4f}"
+        f"  Absolute mean: {np.mean(np.abs(deviations_const)):.4f} ± {np.std(np.abs(deviations_const)):.4f}"
     )
 
-    # 对比四种方法的差异
-    print("\n5. 四种方法的对比：")
+    print("\n4. Absolute deviation |EN - ZH| (no normalization):")
     print(
-        f"  sqrt/标准 的绝对值比值: {np.mean(np.abs(deviations_sqrt)) / np.mean(np.abs(deviations)):.4f}"
+        f"  Mean: {np.mean(absolute_deviations):.4f} ± {np.std(absolute_deviations):.4f}"
     )
     print(
-        f"  定值/标准 的绝对值比值: {np.mean(np.abs(deviations_const)) / np.mean(np.abs(deviations)):.4f}"
+        f"  Range: min={min(absolute_deviations):.4f}, max={max(absolute_deviations):.4f}"
+    )
+
+    # Compare the differences of the four methods
+    print("\n5. Comparison of the four methods:")
+    print(
+        f"  sqrt/standard absolute ratio: {np.mean(np.abs(deviations_sqrt)) / np.mean(np.abs(deviations)):.4f}"
+    )
+    print(
+        f"  constant/standard absolute ratio: {np.mean(np.abs(deviations_const)) / np.mean(np.abs(deviations)):.4f}"
     )
     print(
         f"  sqrt/定值 的绝对值比值: {np.mean(np.abs(deviations_sqrt)) / np.mean(np.abs(deviations_const)):.4f}"
     )
     print()
 
-    # 正确对齐权重统计
+    # Correct alignment weight statistics
     correct_avg = np.mean(correct_weights)
     correct_std = np.std(correct_weights)
-    print(f"正确对齐权重基准: {correct_avg:.4f} ± {correct_std:.4f}")
-    print(f"  权重分布: min={min(correct_weights):.4f}, max={max(correct_weights):.4f}")
+    print(f"Correct alignment weight baseline: {correct_avg:.4f} ± {correct_std:.4f}")
+    print(
+        f"  Weight distribution: min={min(correct_weights):.4f}, max={max(correct_weights):.4f}"
+    )
     high_weight_count = sum(1 for w in correct_weights if w > 0.8)
     print(
-        f"  高权重(>0.8)比例: {high_weight_count}/{len(correct_weights)} ({high_weight_count/len(correct_weights)*100:.1f}%)"
+        f"  High weight (>0.8) ratio: {high_weight_count}/{len(correct_weights)} ({high_weight_count/len(correct_weights)*100:.1f}%)"
     )
     print()
 
-    # 创建图表：对比四种偏差计算方法（2x2布局）
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    # Create chart: Compare four deviation calculation methods (2x2 layout)
+    axes = plt.subplots(2, 2, figsize=(16, 12))[1]
 
-    # 图1：标准相对偏差 vs 平均标点数
+    # Chart 1: Standard relative deviation vs average punctuation count
     ax1 = axes[0, 0]
     ax1.scatter(avg_puncts, deviations, alpha=0.6, edgecolors="k", s=50, color="blue")
     ax1.axhline(y=0, color="r", linestyle="--", alpha=0.5)
@@ -230,7 +239,7 @@ def analyze_results(
     )
     ax1.grid(True, alpha=0.3)
 
-    # 添加趋势线
+    # Add trend line
     if len(avg_puncts) > 1:
         z = np.polyfit(avg_puncts, np.abs(deviations), 1)
         p = np.poly1d(z)
@@ -243,7 +252,7 @@ def analyze_results(
         )
         ax1.legend()
 
-    # 图2：根号分母偏差 vs 平均标点数
+    # Chart 2: Square root denominator deviation vs average punctuation count
     ax2 = axes[0, 1]
     ax2.scatter(
         avg_puncts, deviations_sqrt, alpha=0.6, edgecolors="k", s=50, color="orange"
@@ -258,7 +267,7 @@ def analyze_results(
     )
     ax2.grid(True, alpha=0.3)
 
-    # 添加趋势线
+    # Add trend line
     if len(avg_puncts) > 1:
         z = np.polyfit(avg_puncts, np.abs(deviations_sqrt), 1)
         p = np.poly1d(z)
@@ -271,7 +280,7 @@ def analyze_results(
         )
         ax2.legend()
 
-    # 图3：定值分母偏差 vs 平均标点数
+    # Chart 3: Constant denominator deviation vs average punctuation count
     ax3 = axes[1, 0]
     ax3.scatter(
         avg_puncts, deviations_const, alpha=0.6, edgecolors="k", s=50, color="green"
@@ -286,7 +295,7 @@ def analyze_results(
     )
     ax3.grid(True, alpha=0.3)
 
-    # 添加趋势线
+    # Add trend line
     if len(avg_puncts) > 1:
         z = np.polyfit(avg_puncts, np.abs(deviations_const), 1)
         p = np.poly1d(z)
@@ -299,7 +308,7 @@ def analyze_results(
         )
         ax3.legend()
 
-    # 图4：绝对偏差 vs 平均标点数
+    # Chart 4: Absolute deviation vs average punctuation count
     ax4 = axes[1, 1]
     ax4.scatter(
         avg_puncts, absolute_deviations, alpha=0.6, edgecolors="k", s=50, color="purple"
@@ -313,7 +322,7 @@ def analyze_results(
     )
     ax4.grid(True, alpha=0.3)
 
-    # 添加趋势线
+    # Add trend line
     if len(avg_puncts) > 1:
         z = np.polyfit(avg_puncts, absolute_deviations, 1)
         p = np.poly1d(z)
@@ -328,14 +337,14 @@ def analyze_results(
 
     plt.tight_layout()
 
-    # 保存图表
+    # Save chart
     plot_path = Path(__file__).parent / "punctuation_error_analysis.png"
     plt.savefig(plot_path, dpi=150, bbox_inches="tight")
     print(f"统计图已保存到: {plot_path}")
     plt.close()
 
-    # 错位模式分析
-    print("错位模式分析:")
+    # Misalignment mode analysis
+    print("Misalignment mode analysis:")
     higher_count = 0
     total_comparisons = 0
 
@@ -348,10 +357,10 @@ def analyze_results(
         status = "↓" if impact > 0 else "↑"
 
         print(
-            f"  {name:<25} - 平均: {avg_weight:.4f} ± {std_weight:.4f} ({status}{abs(impact):.4f}, {status}{abs(impact_pct):.1f}%)"
+            f"  {name:<25} - Mean: {avg_weight:.4f} ± {std_weight:.4f} ({status}{abs(impact):.4f}, {status}{abs(impact_pct):.1f}%)"
         )
 
-        # 统计得分更高的次数
+        # Count the number of times with higher scores
         for i, weight in enumerate(weights):
             if weight > correct_weights[i]:
                 higher_count += 1
@@ -361,13 +370,13 @@ def analyze_results(
     if total_comparisons > 0:
         higher_percentage = (higher_count / total_comparisons) * 100
         print(
-            f"统计结果: {higher_count}/{total_comparisons} ({higher_percentage:.1f}%) 错位权重高于正确对齐"
+            f"统计结果: {higher_count}/{total_comparisons} ({higher_percentage:.1f}%) Misalignment weights高于正确对齐"
         )
 
         if higher_count == 0:
             print("✅ 所有错位对齐都正确降低了标点相似度权重")
         else:
-            print(f"⚠️  {higher_count} 次错位权重意外高于正确对齐")
+            print(f"⚠️  {higher_count} 次Misalignment weights意外高于正确对齐")
 
     return higher_count == 0
 
@@ -377,17 +386,17 @@ def main():
     print("开始测试标点相似度权重...")
     print()
 
-    # 加载文本
+    # Load texts
     en_lines, zh_lines = load_sample_texts()
     if en_lines is None or zh_lines is None:
         return 1
 
-    # 计算标点统计和权重
+    # Calculate punctuation statistics and weights
     en_punct_counts, zh_punct_counts, correct_weights, misalignment_weights = (
         calculate_punctuation_stats_and_weights(en_lines, zh_lines)
     )
 
-    # 分析结果
+    # Analysis results
     success = analyze_results(
         en_punct_counts, zh_punct_counts, correct_weights, misalignment_weights
     )

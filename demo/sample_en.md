@@ -24,7 +24,9 @@ The desks and chairs were neatly arranged, and the class teacher's notebooks, re
 
 The blackboard was completely free of chalk dust, and the eraser was spotless.
 
-These were things Alya had done on her own initiative during her duty, which weren't originally part of the duty student's tasks. But since Masachika had gotten up unusually early today, he wanted to try saying to her, "Huh? You usually do this? I already finished it for you!"
+These were things Alya had done on her own initiative during her duty, which weren't originally part of the duty student's tasks.
+
+But since Masachika had gotten up unusually early today, he wanted to try saying to her, "Huh? You usually do this? I already finished it for you!"
 
 Masachika returned to his seat, waiting for Alya, who should arrive earlier than usual.
 

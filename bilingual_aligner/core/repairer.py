@@ -13,12 +13,15 @@ from .splitter import UniversalSplitter
 from ..corpus import (
     LineObject,
     BilingualCorpus,
+)
+from ..repair.models import (
     RepairType,
     SplitType,
     AlignmentState,
     RepairLog,
 )
-from ..repair_applier import RepairApplier
+from ..repair.executor import RepairExecutor
+from ..alignment.enum_aligner import EnumPruningAligner
 from ..position import LocationRange
 
 
@@ -85,10 +88,17 @@ class TextAligner:
             # Use factory which may return a cached instance
             self._text_processor = get_text_processor(model_name=model_name)
         self.corpus = BilingualCorpus(self._text_processor)
-        self.repair_applier = RepairApplier(self.corpus, self.config)
+        self.repair_applier = RepairExecutor(self.corpus, self.config)
 
-        # Load files
+        # Load files and measure encoding (embedding) time which happens during loading
+        enc_start = time.time()
         self._load_files()
+        self._encoding_time = time.time() - enc_start
+        # Round for display consistency
+        try:
+            self._encoding_time = round(self._encoding_time, 4)
+        except Exception:
+            pass
 
     @property
     def text_processor(self):
@@ -116,12 +126,238 @@ class TextAligner:
         start_time = time.time()
 
         # Execute repairs using new DP-based pipeline
+        # Implement retry-on-anomaly logic: if neighbor-index anomaly groups
+        # (e.g. TARGET_BEFORE / TARGET_AFTER runs) are detected in the
+        # output, retry the whole pipeline with progressively relaxed
+        # `node_relative_threshold` values. Relaxation increments are applied
+        # cumulatively: [0.05, 0.10, 0.15] -> cumulative [0.05, 0.15, 0.30].
+        # Only the final attempt's repair logs are returned.
+
+        # Keep original threshold for restoration and baseline
+        orig_threshold = self.config.get(
+            "node_relative_threshold", EnumPruningAligner.NODE_RELATIVE_THRESHOLD
+        )
+
+        # First (baseline) attempt
         result = self.repair_applier.apply_repairs()
+
+        # Detect neighbor-index anomalies (TARGET_BEFORE / TARGET_AFTER runs)
+        problematic_codes = {"TARGET_BEFORE", "TARGET_AFTER", "TARGET_MIXED_SHIFT"}
+        def has_problematic_exceptions(res: Dict[str, Any]) -> bool:
+            repaired_lines = res.get("repaired_lines", [])
+            ex = self._detect_index_shift_exceptions(repaired_lines)
+            for e in ex:
+                if e.get("code") in problematic_codes:
+                    return True
+            return False
+
+        # If problematic exceptions found, perform retries with relaxed thresholds
+        # Run retries on a temporary corpus / executor to avoid mutating internal
+        # state (self.corpus / self.repair_applier) unless a retry is accepted.
+        if has_problematic_exceptions(result):
+            self.logger.info("Index-shift anomalies detected; attempting relaxed retries...")
+            relax_increments = [0.05, 0.10, 0.15]
+            cumulative = 0.0
+            final_result = result
+
+            # Keep originals in case we need to preserve them
+            orig_corpus = self.corpus
+            orig_repair_applier = self.repair_applier
+
+            for inc in relax_increments:
+                cumulative += inc
+                new_threshold = max(0.0, orig_threshold - cumulative)
+                self.logger.info(f"Retrying with node_relative_threshold={new_threshold:.3f}")
+
+                # Build a temporary corpus and executor so retries do not mutate
+                # the active self.corpus until we accept a retry's result.
+                try:
+                    from ..corpus import BilingualCorpus
+
+                    temp_corpus = BilingualCorpus(self._text_processor)
+                    temp_corpus.load_source(self.source_file)
+                    temp_corpus.load_target(self.target_file)
+                except Exception as e:
+                    self.logger.warning(f"Failed to prepare temporary corpus for retry: {e}")
+                    continue
+
+                # Prepare a shallow copy of config for this attempt (do not mutate self.config)
+                attempt_config = dict(self.config)
+                attempt_config["node_relative_threshold"] = new_threshold
+
+                temp_executor = RepairExecutor(temp_corpus, attempt_config)
+
+                try:
+                    attempt_result = temp_executor.apply_repairs()
+                except Exception as e:
+                    self.logger.warning(f"Retry attempt failed with exception: {e}")
+                    # keep final_result unchanged and continue
+                    continue
+
+                # If no problematic exceptions, accept this attempt and adopt its corpus
+                if not has_problematic_exceptions(attempt_result):
+                    final_result = attempt_result
+                    # Adopt the successful temporary corpus & executor as the active ones
+                    self.corpus = temp_corpus
+                    self.repair_applier = temp_executor
+                    self.logger.info("Retry succeeded: anomalies resolved; adopting retry result")
+                    break
+
+                # Otherwise record and continue without adopting the temp corpus
+                final_result = attempt_result
+
+            # Restore original threshold in config (logical default)
+            self.config["node_relative_threshold"] = orig_threshold
+            # Use the final_result as the result to be returned
+            result = final_result
 
         # Add timing and state info
         result["stats"]["total_time_seconds"] = time.time() - start_time
+        # Include measured encoding time if available (encoding happens during file loading)
+        if hasattr(self, "_encoding_time"):
+            result["stats"]["encoding_time_seconds"] = float(self._encoding_time)
         result["state"]["exceptions"] = result["state"].get("exceptions", [])
         return result
+
+    def _detect_index_shift_exceptions(self, repaired_lines: List[str]) -> List[Dict[str, Any]]:
+        """
+        Detect neighbor-index shift anomalies (TARGET_BEFORE / TARGET_AFTER)
+        using the same logic as used when saving logs. Returns structured
+        exceptions for consecutive runs (length >= 3).
+        """
+        exceptions = []
+
+        def _sim_to_text(src_line_obj, tgt_text: str) -> Optional[float]:
+            if not tgt_text:
+                return None
+            try:
+                tgt_line_obj = self.corpus._create_or_get_line(tgt_text, is_source=False)
+                return self.corpus.get_similarity(src_line_obj, tgt_line_obj, use_punctuation_weight=False)
+            except Exception:
+                return None
+
+        anomaly_by_index = {}
+        for i, src_line in enumerate(self.corpus.source_lines):
+            if i >= len(repaired_lines):
+                continue
+
+            sim_center = _sim_to_text(src_line, repaired_lines[i])
+            sim_prev = None
+            sim_next = None
+
+            if i - 1 >= 0 and (i - 1) < len(repaired_lines):
+                sim_prev = _sim_to_text(src_line, repaired_lines[i - 1])
+            if i + 1 < len(repaired_lines):
+                sim_next = _sim_to_text(src_line, repaired_lines[i + 1])
+
+            sims = []
+            if sim_prev is not None:
+                sims.append(("prev", sim_prev))
+            if sim_center is not None:
+                sims.append(("center", sim_center))
+            if sim_next is not None:
+                sims.append(("next", sim_next))
+
+            if not sims:
+                continue
+
+            best_label, best_sim = max(sims, key=lambda x: x[1])
+            if best_label == "center":
+                continue
+
+            try:
+                src_txt = src_line.text
+            except Exception:
+                src_txt = ""
+
+            def _example_for(idx: int) -> str:
+                if 0 <= idx < len(repaired_lines):
+                    return repaired_lines[idx]
+                return ""
+
+            if best_label == "prev":
+                code = "TARGET_BEFORE"
+                message = "Translation appears before source (likely index shift: target at i-1 matches source i)"
+                examples = [
+                    {
+                        "index": i,
+                        "source": src_txt,
+                        "target_prev": _example_for(i - 1),
+                        "target_center": _example_for(i),
+                    }
+                ]
+                value = round(best_sim - (sim_center or 0.0), 4)
+            else:
+                code = "TARGET_AFTER"
+                message = "Translation appears after source (likely index shift: target at i+1 matches source i)"
+                examples = [
+                    {
+                        "index": i,
+                        "source": src_txt,
+                        "target_center": _example_for(i),
+                        "target_next": _example_for(i + 1),
+                    }
+                ]
+                value = round(best_sim - (sim_center or 0.0), 4)
+
+            anomaly_by_index[i] = {
+                "code": code,
+                "message": message,
+                "value": value,
+                "examples": examples,
+            }
+
+        # Build exceptions only for consecutive runs of length >= 3
+        exceptions_from_runs = []
+        if anomaly_by_index:
+            sorted_idxs = sorted(anomaly_by_index.keys())
+            runs = []
+            current_run = [sorted_idxs[0]]
+            for idx in sorted_idxs[1:]:
+                if idx == current_run[-1] + 1:
+                    current_run.append(idx)
+                else:
+                    runs.append(current_run)
+                    current_run = [idx]
+            runs.append(current_run)
+
+            for run in runs:
+                if len(run) < 3:
+                    continue
+                codes = [anomaly_by_index[i]["code"] for i in run]
+                uniform_code = codes.count(codes[0]) == len(codes)
+                if uniform_code:
+                    code = codes[0]
+                    message = f"Consecutive index-shift anomalies detected: {code} for {len(run)} lines"
+                else:
+                    code = "TARGET_MIXED_SHIFT"
+                    message = f"Consecutive index-shift anomalies detected (mixed types) for {len(run)} lines"
+
+                examples = []
+                for i in run[:3]:
+                    ex = anomaly_by_index[i].get("examples", [])
+                    if ex:
+                        examples.append(ex[0])
+
+                avg_value = round(sum(anomaly_by_index[i]["value"] for i in run) / len(run), 4)
+
+                orig_lines = [self.corpus.content_line_map[i] for i in run]
+                content_idxs = list(run)
+                loc = LocationRange(is_source=True, line_numbers=tuple(orig_lines), content_indices=tuple(content_idxs))
+
+                exceptions_from_runs.append(
+                    {
+                        "level": "WARNING",
+                        "code": code,
+                        "message": message,
+                        "value": avg_value,
+                        "position": {"is_source": True, "formatted": str(loc)},
+                        "examples": examples,
+                    }
+                )
+
+        exceptions.extend(exceptions_from_runs)
+        return exceptions
 
     def save_results(
         self,
@@ -272,17 +508,6 @@ class TextAligner:
             else:
                 position_str = ""
 
-            # Calculate line count change
-            line_change = 0
-            if log.repair_type == RepairType.MERGE_LINES:
-                line_change = -1  # Two lines become one
-            elif log.repair_type == RepairType.SPLIT_LINE:
-                line_change = 1  # One line becomes two
-            elif log.repair_type == RepairType.INSERT_LINE:
-                line_change = 1  # One line added
-            elif log.repair_type == RepairType.DELETE_LINE:
-                line_change = -1  # One line removed
-
             # Use placeholders if text is missing
             src_txt = log.source_text or ""
             tgt_before_txt = log.target_before or ""
@@ -343,16 +568,21 @@ class TextAligner:
 
         # Build comprehensive stats dict aligned with the compact schema
         total_repairs = stats.get("total_repairs", 0)
-        similarity_improvement = round(stats.get("similarity_improvement", 0.0), 4)
+        # similarity_improvement intentionally removed from saved stats
 
-        # Derive processing time breakdown: total, encoding (inferred), dp, postprocess
+        # Derive processing time breakdown: total, encoding (prefer measured), dp, postprocess
         total_time = round(stats.get("total_time_seconds", 0.0), 4)
         dp_time = round(stats.get("dp_time_seconds", 0.0), 4)
         post_time = round(stats.get("postprocess_time_seconds", 0.0), 4)
-        encoding_time = total_time - dp_time - post_time
-        if encoding_time < 0:
-            # fallback guard
-            encoding_time = 0.0
+
+        # If caller included a measured encoding time (from file loading), prefer it.
+        if stats.get("encoding_time_seconds") is not None:
+            encoding_time = round(float(stats.get("encoding_time_seconds", 0.0)), 4)
+        else:
+            encoding_time = total_time - dp_time - post_time
+            if encoding_time < 0:
+                # fallback guard
+                encoding_time = 0.0
 
         processing_time = {
             "total": round(total_time, 4),
@@ -390,9 +620,19 @@ class TextAligner:
             ),
         }
 
+        # Build new unified schema using OutputFormatter
+        from ..output.formatter import OutputFormatter
+
+        formatter = OutputFormatter()
+
+        # Build summary and performance layers (pass repair_types to summary)
+        summary = formatter.build_summary(stats, repair_breakdown=repair_types)
+        performance = formatter.build_performance(stats)
+
+        # Prepare stats_dict in new schema format
         stats_dict = {
             "total_repairs": total_repairs,
-            "similarity_improvement": similarity_improvement,
+            "dp_stats": stats.get("dp_stats", {}),
             "processing_time": processing_time,
             "file_summary": file_summary,
             "repair_types": repair_types,
@@ -401,8 +641,10 @@ class TextAligner:
             "target_content_lines_after": tgt_after,
         }
 
-        # Update result['stats'] with the new stats dict (adds similarity_statistics)
-        result["stats"] = stats_dict
+        # Update result with new schema layers
+        result["summary"] = summary
+        result["performance"] = performance
+        result["stats"] = stats_dict  # Keep old stats for backward reference
 
         # Build structured exceptions list using neighbor-index validation.
         #
@@ -559,19 +801,44 @@ class TextAligner:
                     sum(anomaly_by_index[i]["value"] for i in run) / len(run), 4
                 )
 
+                # Build structured position object for machine-readability
+                orig_lines = [self.corpus.content_line_map[i] for i in run]
+                content_idxs = list(run)
+                loc = LocationRange(
+                    is_source=True, line_numbers=tuple(orig_lines), content_indices=tuple(content_idxs)
+                )
+                # Only keep a compact, human- and machine-readable formatted
+                # representation to save space. Remove raw `line_numbers` and
+                # `content_indices` arrays which can be large.
                 exceptions_from_runs.append(
                     {
                         "level": "WARNING",
                         "code": code,
                         "message": message,
                         "value": avg_value,
-                        "affected_lines": run,
+                        "position": {
+                            "is_source": True,
+                            "formatted": str(loc),
+                        },
                         "examples": examples,
                     }
                 )
 
         # Attach neighbor-based exceptions (only groups >=3)
         exceptions.extend(exceptions_from_runs)
+
+        # Also include exceptions recorded during processing (DP structural exceptions,
+        # post-processing verification failures, etc.) which are stored in
+        # result['state']['exceptions']. These may include consecutive non-1:1
+        # detections and repair verification errors. Merge them so they are
+        # present in the final JSON output.
+        try:
+            state_excs = result.get("state", {}).get("exceptions", [])
+            if state_excs:
+                # Prepend to keep processing-detected exceptions first
+                exceptions = list(state_excs) + exceptions
+        except Exception:
+            pass
 
         # Create config snapshot: include non-default overrides and model name
         try:
@@ -608,11 +875,12 @@ class TextAligner:
             # Atomic rename
             os.replace(temp_logs_path, logs_path)
         else:
-            # JSON payload (compact schema)
+            # JSON payload (new unified schema)
             payload = {
                 "metadata": metadata,
-                "config_snapshot": config_snapshot,
-                "stats": stats_dict,
+                "configuration": config_snapshot,
+                "summary": result.get("summary", {}),
+                "performance": result.get("performance", {}),
                 "exceptions": exceptions,
                 "repairs": [
                     _prepare_record(log, idx) for idx, log in enumerate(sorted_logs)
@@ -644,24 +912,21 @@ class TextAligner:
         result: Dict[str, Any],
         output_dir: Optional[str] = None,
         show_sample_logs: int = 20,
+        level: str = "normal",
     ):
-        """Print a summary report of the repair results"""
-        stats = result.get("stats", {})
-        print("\nRepair Results:")
-        print(f"  Repairs performed: {stats.get('total_repairs', 0)}")
-        print(f"  Source lines: {stats.get('source_content_lines', 0)}")
-        print(
-            f"  Target lines: {stats.get('target_content_lines_after', stats.get('target_line_count', 0))}"
-        )
-        total_time = stats.get("total_time_seconds")
-        if total_time is not None:
-            print(f"  Processing time: {total_time:.2f}s")
+        """Print a summary report of the repair results
 
-        # Detailed repair listing omitted from console summary to keep output concise.
-        # Full repair logs are available in the JSON/ndjson output saved to disk.
+        Args:
+            result: Repair result dict from repair()
+            output_dir: Optional output directory for context
+            show_sample_logs: Deprecated parameter (kept for compatibility)
+            level: Output level (minimal, normal, verbose)
+        """
+        from ..output.formatter import OutputFormatter
 
-        if output_dir:
-            print(f"\nResults saved to: {os.path.abspath(output_dir)}")
+        formatter = OutputFormatter()
+        console_output = formatter.format_console(result, level=level)
+        print("\n" + console_output)
 
     def _compute_similarity_statistics(
         self, similarities: List[float]
@@ -684,12 +949,13 @@ class TextAligner:
             return {
                 "count": 0,
                 "mean": 0.0,
-                "median": 0.0,
                 "stdev": 0.0,
-                "1%_low": 0.0,
-                "5%_low": 0.0,
-                "10%_low": 0.0,
-                "25%_low": 0.0,
+                "1%_percentile": 0.0,
+                "5%_percentile": 0.0,
+                "10%_percentile": 0.0,
+                "25%_percentile": 0.0,
+                "50%_percentile": 0.0,
+                "75%_percentile": 0.0,
                 "min": 0.0,
                 "max": 0.0,
             }
@@ -702,11 +968,7 @@ class TextAligner:
         # Mean
         mean = sum(sims) / n
 
-        # Median
-        if n % 2 == 1:
-            median = sims[n // 2]
-        else:
-            median = (sims[n // 2 - 1] + sims[n // 2]) / 2
+        # Median (50th percentile) is computed below via percentile helper
 
         # Standard deviation
         try:
@@ -731,12 +993,13 @@ class TextAligner:
         return {
             "count": n,
             "mean": round(mean, 4),
-            "median": round(median, 4),
             "stdev": round(stdev, 4),
-            "1%_low": round(percentile(sims, 1), 4),
-            "5%_low": round(percentile(sims, 5), 4),
-            "10%_low": round(percentile(sims, 10), 4),
-            "25%_low": round(percentile(sims, 25), 4),
+            "1%_percentile": round(percentile(sims, 1), 4),
+            "5%_percentile": round(percentile(sims, 5), 4),
+            "10%_percentile": round(percentile(sims, 10), 4),
+            "25%_percentile": round(percentile(sims, 25), 4),
+            "50%_percentile": round(percentile(sims, 50), 4),
+            "75%_percentile": round(percentile(sims, 75), 4),
             "min": round(min(sims), 4),
             "max": round(max(sims), 4),
         }

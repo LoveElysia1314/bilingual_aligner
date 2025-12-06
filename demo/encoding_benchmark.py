@@ -36,17 +36,6 @@ def clear_caches(processor):
         pass
 
 
-def normalize_vector(vec: np.ndarray) -> np.ndarray:
-    norm = np.linalg.norm(vec)
-    return vec / (norm + 1e-8) if norm > 0 else vec
-
-
-def normalize_rows(mat: np.ndarray) -> np.ndarray:
-    norms = np.linalg.norm(mat, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    return mat / (norms + 1e-8)
-
-
 class EncodingBenchmark:
     """精简的编码方法对比测试"""
 

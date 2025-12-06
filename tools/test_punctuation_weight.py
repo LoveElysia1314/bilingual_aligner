@@ -1,6 +1,6 @@
 """
-验证新的容差=2.5的二次函数权重
-展示与原有线性函数的对比
+Validate the new quadratic function weight with tolerance=2.5
+Show comparison with the original linear function
 """
 
 import sys
@@ -14,7 +14,7 @@ from bilingual_aligner.core.punctuation import (
 
 
 def weight_original_linear(p_src, p_tgt, tolerance=2.0):
-    """原有线性函数（仅用于对比参考）"""
+    """Original linear function (for comparison reference only)"""
     avg = (p_src + p_tgt) / 2.0
     if avg <= 0:
         return 1.0
@@ -25,11 +25,11 @@ def weight_original_linear(p_src, p_tgt, tolerance=2.0):
 
 def main():
     print("=" * 80)
-    print("新权重函数验证 (容差=2.5, 二次函数)")
+    print("New weight function validation (tolerance=2.5, quadratic function)")
     print("=" * 80)
     print()
 
-    # 测试用例展示
+    # Test case demonstration
     test_cases = [
         ("perfect match", "Hello, world!", "Hello, world!"),
         ("within tolerance (Δp=1)", "Hello, world!", "Hello world"),
@@ -51,25 +51,27 @@ def main():
         print(
             f"  Src: {src_count} punctuation, Tgt: {tgt_count} punctuation, |Δp|={diff}"
         )
-        print(f"  新权重 (二次): {weight_new:.4f}  |  原有 (线性): {weight_old:.4f}")
+        print(
+            f"  New weight (quadratic): {weight_new:.4f}  |  Original (linear): {weight_old:.4f}"
+        )
         print()
 
     print("=" * 80)
-    print("总结")
+    print("Summary")
     print("=" * 80)
     print(
         """
-新的二次函数权重特点：
-✓ 容差=2.5: |Δp| ≤ 2.5时无惩罚，|Δp| ≥ 3时开始扣分
-✓ 二次曲线: 惩罚力度随差异平方递增，对大偏差更严格
-✓ 完全公平: 不受句长影响，同样差异同样惩罚
-✓ 参数直观: 只需调整容差(tolerance)和除数(divisor)
+New quadratic function weight features:
+✓ Tolerance=2.5: No penalty when |Δp| ≤ 2.5, penalty starts when |Δp| ≥ 3
+✓ Quadratic curve: Penalty increases with the square of difference, stricter for large deviations
+✓ Completely fair: Not affected by sentence length, same difference same penalty
+✓ Intuitive parameters: Only need to adjust tolerance and divisor
 
-权重等级：
-- [0.90, 1.00]: 高置信 (|Δp| ≤ 3.5)
-- [0.64, 0.90]: 中置信 (3.5 < |Δp| ≤ 4.5)
-- [0.36, 0.64]: 低置信 (4.5 < |Δp| ≤ 5.5)
-- [0.00, 0.36]: 不信任 (|Δp| > 5.5)
+Weight levels:
+- [0.90, 1.00]: High confidence (|Δp| ≤ 3.5)
+- [0.64, 0.90]: Medium confidence (3.5 < |Δp| ≤ 4.5)
+- [0.36, 0.64]: Low confidence (4.5 < |Δp| ≤ 5.5)
+- [0.00, 0.36]: Distrust (|Δp| > 5.5)
 """
     )
 

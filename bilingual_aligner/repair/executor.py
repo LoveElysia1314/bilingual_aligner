@@ -1,5 +1,5 @@
 """
-New repair pipeline: Integrate DP validation with targeted post-processing.
+Repair execution pipeline: Integrate DP validation with targeted post-processing.
 
 This module orchestrates the complete repair workflow:
 1. Run DP global alignment to get baseline
@@ -15,9 +15,11 @@ from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 import numpy as np
 
-from .aligners.enum_pruning_aligner import DPAligner, AlignmentStep, OperationType
-from .corpus import BilingualCorpus, RepairLog, RepairType, SplitType
-from .position import build_line_number_mapping, LineNumberMapping, LocationRange
+from ..alignment import EnumPruningAligner
+from ..alignment.enum_aligner import AlignmentStep, OperationType
+from ..corpus import BilingualCorpus
+from .models import RepairLog, RepairType, SplitType, LineDifferenceException
+from ..position import build_line_number_mapping, LineNumberMapping, LocationRange
 
 
 logger = logging.getLogger(__name__)
@@ -31,13 +33,19 @@ class PostProcessResult:
     repairs_generated: int
     repair_logs: List[RepairLog]
     total_time: float
+    structural_exceptions: List[str] = None
 
 
-class RepairApplier:
+class RepairExecutor:
     """
-    New unified repair application pipeline combining DP and post-processing.
+    Unified repair execution pipeline combining DP alignment with targeted post-processing.
 
-    Replaces the old executor-based approach with DP-driven strategy.
+    Orchestrates the complete repair workflow:
+    1. Run DP global alignment to get baseline
+    2. Identify 2:1 mappings requiring post-processing
+    3. Simulate repairs and select best options
+    4. Generate standardized repair logs
+    5. Apply repairs to corpus and return results
     """
 
     def __init__(self, corpus: BilingualCorpus, config: Dict):
@@ -79,7 +87,7 @@ class RepairApplier:
 
         # Phase 1: DP alignment
         dp_start = time.time()
-        dp_aligner = DPAligner(self.corpus, self.config)
+        dp_aligner = EnumPruningAligner(self.corpus, self.config)
         dp_result = dp_aligner.run()
         dp_time = time.time() - dp_start
 
@@ -87,8 +95,10 @@ class RepairApplier:
         if isinstance(dp_result, dict):
             # Prefer Stage1 for post-processing (it identifies non-1:1 candidates)
             alignment_steps = dp_result.get("stage1", [])
+            structural_exceptions = dp_result.get("structural_exceptions", [])
         else:
             alignment_steps = dp_result
+            structural_exceptions = []
 
         if not alignment_steps:
             self.logger.error("DP alignment failed")
@@ -99,6 +109,9 @@ class RepairApplier:
         )
 
         # Phase 2: Post-processing for non-1:1 cases (SOURCE_AHEAD / TARGET_SPLIT)
+        self.logger.info("\n" + "=" * 70)
+        self.logger.info("Stage 2: Apply Repairs")
+        self.logger.info("=" * 70)
         pp_start = time.time()
         pp_result = self._postprocess_source_ahead(alignment_steps)
         pp_time = time.time() - pp_start
@@ -143,7 +156,16 @@ class RepairApplier:
         # in result.stats separately; avoid adding dynamic attributes to mapping)
 
         # Check for alignment exceptions
-        exceptions = self._check_alignment_exceptions(alignment_steps)
+        # Combine structural exceptions reported by DP aligner, postprocess exceptions, and local checks
+        exceptions = []
+        # DP-level structural exceptions discovered during alignment
+        if structural_exceptions:
+            exceptions.extend(structural_exceptions)
+        # Post-processing stage structural exceptions (e.g. verification failures)
+        if getattr(pp_result, "structural_exceptions", None):
+            exceptions.extend(pp_result.structural_exceptions)
+        # Local alignment-step checks (consecutive non-1:1)
+        exceptions.extend(self._check_alignment_exceptions(alignment_steps))
 
         result = {
             # Build `repaired_lines` aligned to source filtered indices.
@@ -153,6 +175,7 @@ class RepairApplier:
             "repair_logs": pp_result.repair_logs,
             "line_number_mapping": self.line_number_mapping,  # Include mapping in result
             "stats": {
+                # Raw stats used for new schema building - kept for internal reference
                 "total_repairs": len(pp_result.repair_logs),
                 "source_total_lines": len(self.corpus.source_with_empty),
                 "target_total_lines": len(self.corpus.target_with_empty),
@@ -162,12 +185,12 @@ class RepairApplier:
                 "target_content_lines_after": len(self.corpus.target_lines),
                 "line_difference": len(self.corpus.target_lines)
                 - len(self.corpus.source_lines),
-                "similarity_improvement": round(total_improvement, 4),
                 "dp_time_seconds": dp_time,
                 "postprocess_time_seconds": pp_time,
                 "total_time_seconds": total_time,
                 "dp_operations": self._count_operations(alignment_steps),
                 "similarity_statistics": similarity_stats,
+                "dp_stats": dp_result.get("dp_stats", {}),
             },
             "state": {"exceptions": exceptions},
         }
@@ -341,7 +364,8 @@ class RepairApplier:
                 f"  {e}" for e in errors
             )
             self.logger.error(error_msg)
-            raise ValueError(error_msg)
+            # Raise a specific exception for line count / mapping mismatches
+            raise LineDifferenceException(error_msg)
 
         self.logger.info(
             f"Repair verification PASSED: {len(self.corpus.target_lines)} lines indices consistent"
@@ -355,10 +379,10 @@ class RepairApplier:
 
         Modified behavior:
         - SOURCE_AHEAD (2:1): ALWAYS repaired (required)
-        - TARGET_SPLIT (1:2): NOT repaired (left as-is)
-
-        Reason: TARGET_SPLIT repairs (merging) conflict with DP alignment decisions.
-        If DP decided to separate two target lines (1:2), we should respect that decision.
+        - TARGET_SPLIT (1:2): Repaired by MERGE (mandatory) — when a 1:2 mapping
+          is detected the only sensible correction to restore 1:1 balance is to
+          MERGE the two target lines. This is not "left as-is"; it is a
+          mandatory merge repair.
 
         Process:
         1. Scan all alignment_steps and collect SOURCE_AHEAD repairs
@@ -368,6 +392,7 @@ class RepairApplier:
 
         source_ahead_count = 0
         repair_logs = []
+        structural_exceptions: List[str] = []
 
         # Phase A: Collect all non-1:1 repairs first (no corpus modifications yet)
         repairs_to_apply = []
@@ -465,15 +490,21 @@ class RepairApplier:
         # Phase C: Verify all repairs applied correctly
         try:
             self._verify_repairs_applied()
+        except LineDifferenceException as e:
+            # Record line-difference verification failure as a structural exception
+            self.logger.error(f"Repairs verification failed (line difference): {e}")
+            structural_exceptions.append(str(e))
         except ValueError as e:
+            # Fallback for other verification ValueErrors
             self.logger.error(f"Repairs verification failed: {e}")
-            raise
+            structural_exceptions.append(str(e))
 
         return PostProcessResult(
             source_ahead_count=source_ahead_count,
             repairs_generated=len(repair_logs),
             repair_logs=repair_logs,
             total_time=0.0,
+            structural_exceptions=structural_exceptions,
         )
 
     def _find_best_repair(
@@ -525,22 +556,51 @@ class RepairApplier:
         hard_points = self.corpus.text_processor.find_hard_split_points(tgt)
         for split_pos in hard_points:
             candidate = self._simulate_split(
-                src1, src2, tgt, split_pos, SplitType.HARD_SPLIT, base_avg
+                src1, src2, tgt, split_pos, SplitType.HARD_SPLIT
             )
             if candidate:
                 candidates.append(candidate)
 
-        # Try soft splits if no good hard splits
-        if not candidates or max(c["score"] for c in candidates) < base_avg:
-            soft_points = self.corpus.text_processor.find_soft_split_points(tgt)
-            for split_pos in soft_points:
-                candidate = self._simulate_split(
-                    src1, src2, tgt, split_pos, SplitType.SOFT_SPLIT, base_avg
-                )
-                if candidate:
-                    candidates.append(candidate)
+        # Try soft splits as well (always). Previously we gated soft splits
+        # behind the presence or quality of hard splits; remove that gating so
+        # we consider all soft split candidates and then select the best
+        # overall candidate regardless of whether it improves over baseline.
+        soft_points = self.corpus.text_processor.find_soft_split_points(tgt)
+        for split_pos in soft_points:
+            candidate = self._simulate_split(
+                src1, src2, tgt, split_pos, SplitType.SOFT_SPLIT
+            )
+            if candidate:
+                candidates.append(candidate)
 
-        # Only consider INSERT fallback strategies if no split candidates were found
+        # Decision policy for INSERT fallback:
+        # Allow INSERT strategies when no viable split candidate was produced
+        # (i.e. `candidates` is empty), even if raw split points exist. The
+        # previous stricter rule disabled INSERT whenever any split point was
+        # detected, which could leave some 2:1 cases unrepaired when all
+        # simulated splits were invalid (empty sides after split, etc.). To
+        # ensure every 2:1 receives a repair attempt, fall back to INSERT when
+        # no split candidate is available.
+
+        # Ensure we have soft_points for diagnostic logging
+        try:
+            soft_points  # may be defined above
+        except NameError:
+            soft_points = self.corpus.text_processor.find_soft_split_points(tgt)
+
+        has_split_points = bool(hard_points) or bool(soft_points)
+
+        # If there are raw split points but no valid simulated candidates,
+        # record a diagnostic warning to help debugging.
+        if has_split_points and not candidates:
+            self.logger.warning(
+                "Found split points (hard=%d soft=%d) but no valid simulated splits for tgt_idx=%s. Allowing INSERT fallback.",
+                len(hard_points),
+                len(soft_points),
+                tgt_idx,
+            )
+
+        # If no candidates from split simulation, add INSERT fallback strategies
         if not candidates:
             # ========== STRATEGY B: Insert virtual source before src2 ==========
             sim_src2_tgt = self.corpus.get_similarity(
@@ -580,8 +640,28 @@ class RepairApplier:
 
         best_repair = max(candidates, key=lambda c: c["score"])
 
-        # Log which strategy was selected
-        strategy_name = best_repair.get("strategy", "split_target")
+        # Determine a concise strategy label for final logging (e.g. hard_split_target)
+        if best_repair.get("type") == RepairType.SPLIT_LINE:
+            st = best_repair.get("split_type")
+            if st == SplitType.HARD_SPLIT:
+                strategy_label = "hard_split_target"
+            elif st == SplitType.SOFT_SPLIT:
+                strategy_label = "soft_split_target"
+            else:
+                strategy_label = "split_target"
+        elif best_repair.get("type") == RepairType.INSERT_LINE:
+            # normalize insert strategy names for log clarity
+            strat = best_repair.get("strategy", "insert")
+            if strat == "insert_virtual_source_before":
+                strategy_label = "insert_virtual_source"
+            elif strat == "insert_virtual_target_after":
+                strategy_label = "insert_virtual_target"
+            else:
+                strategy_label = strat
+        elif best_repair.get("type") == RepairType.MERGE_LINES:
+            strategy_label = "merge_target"
+        else:
+            strategy_label = best_repair.get("strategy", "repair")
 
         # Create unified position format
         src_range = LocationRange.from_original_lines(
@@ -596,14 +676,15 @@ class RepairApplier:
             line_numbers=self.corpus.target_lines[tgt_idx].original_line_number,
         )
 
+        # Final, concise selection log (replaces earlier verbose diagnostic line)
         self.logger.info(
             f"Selected repair for 2:1 at {src_range} → {tgt_range}: "
-            f"{strategy_name} with score {best_repair['score']:.4f}"
+            f"{strategy_label} with score {best_repair['score']:.4f}"
         )
 
         # Create repair log
         repair_log = self._create_repair_log(
-            src_idx1, src_idx2, tgt_idx, best_repair, base_avg
+            src_idx1, src_idx2, tgt_idx, best_repair
         )
 
         return best_repair, repair_log
@@ -615,7 +696,6 @@ class RepairApplier:
         tgt: str,
         split_pos: int,
         split_type: SplitType,
-        base_avg: float,
     ) -> Optional[Dict]:
         """
         Simulate splitting target at position and evaluate (STRATEGY A).
@@ -634,7 +714,7 @@ class RepairApplier:
                 return None
 
             # Create temporary LineObject instances for similarity calculation
-            from .corpus import LineObject
+            from ..corpus import LineObject
 
             src1_line = self.corpus._create_or_get_line(src1, is_source=True)
             src2_line = self.corpus._create_or_get_line(src2, is_source=True)
@@ -665,7 +745,10 @@ class RepairApplier:
             }
 
         except Exception as e:
-            self.logger.debug(f"Split simulation failed: {e}")
+            # Log at INFO so visible in demo runs
+            self.logger.info(
+                f"_simulate_split: split_pos={split_pos} simulation failed: {e}"
+            )
             return None
 
     def _create_repair_log(
@@ -674,7 +757,6 @@ class RepairApplier:
         src_idx2: int,
         tgt_idx: int,
         repair: Dict,
-        sim_before: float,
     ) -> RepairLog:
         """
         Create repair log for post-processing record (2:1 operation).
@@ -697,6 +779,15 @@ class RepairApplier:
 
         source_text = f"{src1.text} | {src2.text}"
         target_before = tgt.text
+
+        # Calculate baseline similarity for logging
+        base_sim1 = self.corpus.get_similarity(
+            src1, tgt, use_punctuation_weight=False
+        )
+        base_sim2 = self.corpus.get_similarity(
+            src2, tgt, use_punctuation_weight=False
+        )
+        sim_before = (base_sim1 + base_sim2) / 2
 
         # Target after depends on repair strategy
         strategy = repair.get("strategy", "split_target")
@@ -932,12 +1023,13 @@ class RepairApplier:
             return {
                 "count": 0,
                 "mean": 0.0,
-                "median": 0.0,
                 "stdev": 0.0,
-                "1%_low": 0.0,
-                "5%_low": 0.0,
-                "10%_low": 0.0,
-                "25%_low": 0.0,
+                "1%_percentile": 0.0,
+                "5%_percentile": 0.0,
+                "10%_percentile": 0.0,
+                "25%_percentile": 0.0,
+                "50%_percentile": 0.0,
+                "75%_percentile": 0.0,
                 "min": 0.0,
                 "max": 0.0,
             }
@@ -950,11 +1042,7 @@ class RepairApplier:
         # Mean
         mean = sum(sims) / n
 
-        # Median
-        if n % 2 == 1:
-            median = sims[n // 2]
-        else:
-            median = (sims[n // 2 - 1] + sims[n // 2]) / 2
+        # Median (50th percentile) will be computed via percentile helper below
 
         # Standard deviation
         try:
@@ -979,12 +1067,13 @@ class RepairApplier:
         return {
             "count": n,
             "mean": round(mean, 4),
-            "median": round(median, 4),
             "stdev": round(stdev, 4),
-            "1%_low": round(percentile(sims, 1), 4),
-            "5%_low": round(percentile(sims, 5), 4),
-            "10%_low": round(percentile(sims, 10), 4),
-            "25%_low": round(percentile(sims, 25), 4),
+            "1%_percentile": round(percentile(sims, 1), 4),
+            "5%_percentile": round(percentile(sims, 5), 4),
+            "10%_percentile": round(percentile(sims, 10), 4),
+            "25%_percentile": round(percentile(sims, 25), 4),
+            "50%_percentile": round(percentile(sims, 50), 4),
+            "75%_percentile": round(percentile(sims, 75), 4),
             "min": round(min(sims), 4),
             "max": round(max(sims), 4),
         }

@@ -82,37 +82,36 @@ class EncodingAnalyzer:
 
         return float(np.dot(emb1, emb2))
 
-    def print_text_analysis(self, text_info):
-        """打印文本分析"""
-        print(f"\n{'='*70}")
-        print("文本分析")
-        print(f"{'='*70}")
+    def run_detailed_analysis(self, text1, text2):
+        """运行详细分析，包括编码基准测试"""
+        print("详细编码分析")
+        print("=" * 50)
 
-        print(f"\n长度:        {text_info['length']} 字符")
-        print(f"句子数:      {text_info['sentence_count']}")
-        print(f"平均句长:    {text_info['avg_sentence_length']:.1f} 字符/句")
+        # 预热：先运行一次编码确保模型完全加载
+        print("预热模型...")
+        try:
+            _ = self.processor.get_normalized_embedding("Hello world")
+            _ = self.processor.get_normalized_embedding_by_sentences(
+                "Hello world", method="mean"
+            )
+            print("✓ 模型预热完成")
+        except Exception as e:
+            print(f"⚠️ 预热失败: {e}")
 
-        if text_info["sentence_count"] > 0:
-            print(f"\n句子详情:")
-            for i, sent in enumerate(text_info["sentences"][:5], 1):
-                display_sent = sent[:50] + "..." if len(sent) > 50 else sent
-                print(f"  {i}. {display_sent}")
-            if len(text_info["sentences"]) > 5:
-                print(f"  ... 共 {text_info['sentence_count']} 句")
+        # 基准测试两种编码方法
+        para_result = self.benchmark_encoding(text1, "paragraph")
+        sent_result = self.benchmark_encoding(text2, "sentence")
 
-    def print_benchmark(self, results):
-        """打印性能基准"""
-        print(f"\n{'='*70}")
-        print("编码性能基准")
-        print(f"{'='*70}\n")
+        results = [para_result, sent_result]
 
-        print(f"{'方法':<20} {'平均时间':<15} {'最小':<12} {'最大':<12} {'标准差':<12}")
-        print("-" * 70)
+        # 打印结果
+        print(f"{'方法':<15} {'平均时间':<12} {'最小':<8} {'最大':<8} {'标准差':<8}")
+        print("-" * 60)
 
         for result in results:
             print(
-                f"{result['method']:<20} "
-                f"{result['avg_time']*1000:.2f}ms{'':<8} "
+                f"{result['method']:<15} "
+                f"{result['avg_time']*1000:.2f}ms{'':<5} "
                 f"{result['min_time']*1000:.2f}ms{'':<5} "
                 f"{result['max_time']*1000:.2f}ms{'':<5} "
                 f"{result['std_time']*1000:.2f}ms"

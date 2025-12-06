@@ -8,7 +8,7 @@ import os
 import time
 from .core.repairer import TextAligner as _TextAligner
 from .core.processor import TextProcessor, get_text_processor
-from .corpus import RepairLog, RepairType
+from .repair.models import RepairLog, RepairType
 
 
 class TextAligner:
@@ -51,7 +51,6 @@ class TextAligner:
         # Perform validation checks
         exceptions = []
         stats = result.get("stats", {})
-        repairs = result.get("repairs", [])
         repair_logs = result.get("repair_logs", [])
 
         # Use line_difference from stats (initial difference)
@@ -64,7 +63,7 @@ class TextAligner:
         # Check for deletions or insertions (INSERT_LINE and DELETE_LINE are dangerous operations)
         has_deletion_or_insertion = any(
             r.repair_type in (RepairType.INSERT_LINE, RepairType.DELETE_LINE)
-            for r in repairs
+            for r in repair_logs
         )
         if has_deletion_or_insertion:
             exceptions.append("OperationException: deletions or insertions detected")
@@ -79,14 +78,9 @@ class TextAligner:
                     f"RepairRateException: repair_rate={repair_rate:.2%} > 5%"
                 )
 
-        # Check for multiple low-similarity alignments (score < 0.6)
-        low_similarity_count = sum(
-            1 for log in repair_logs if log.similarity_after < 0.6
-        )
-        if low_similarity_count >= 3:
-            exceptions.append(
-                f"LowSimilarityException: {low_similarity_count} alignments with similarity < 0.6"
-            )
+        # Low-similarity bulk check removed: individual low-similarity cases
+        # are still recorded per-repair in repair_logs but are not elevated
+        # to an overall exception threshold here.
 
         # Add validation to result
         result["state"] = {"exceptions": exceptions}
@@ -160,8 +154,19 @@ class TextAligner:
         result: Dict[str, Any],
         output_dir: Optional[str] = None,
         show_sample_logs: int = 3,
+        level: str = "normal",
     ):
-        return self._aligner.print_report(result, output_dir, show_sample_logs)
+        """Print a summary report of the repair results
+
+        Args:
+            result: Repair result dict
+            output_dir: Optional output directory for context
+            show_sample_logs: Deprecated parameter (kept for compatibility)
+            level: Output level (minimal, normal, verbose)
+        """
+        return self._aligner.print_report(
+            result, output_dir, show_sample_logs, level=level
+        )
 
 
 def calculate_similarity(

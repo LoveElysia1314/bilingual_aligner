@@ -193,7 +193,7 @@ line_index,semantic_similarity,punct_src,punct_tgt,punct_diff,punct_similarity,c
 383,0.837804,8,8,0,1.0,0.837804,「……怎么了，久世同学？」【这个腿控色狼。】 ,"""...What is it, Kuse-kun?"" [You perverted leg fetishist.]"
 385,0.839597,4,4,0,1.0,0.839597,总觉得听到副声道了。她以俄语在「久世同学」旁边加注小字。 ,"It felt as if he'd heard a subchannel. She'd added small Russian words next to ""Kuse-kun."""
 387,0.72744,2,4,2,1.0,0.72744,被她这么说的政近也想大声辩解，但是既然假装听不懂俄语就无法多说什么。 ,"Hearing this, Masachika wanted to shout his defense, but since he'd pretended not to understand Russian, he couldn't say much."
-389,0.801769,6,10,4,0.75,0.601327,总之要是反驳说「可惜我是奶子星人」，艾莉莎心中的政近股价肯定创新低，全班女生也会抢著拋售政近股，所以到头来保持沉默应该才是正确答案。 ,"After all, if he retorted, ""Unfortunately, I'm a boob person,"" Masachika's stock in Alya's eyes would plummet to an all-time low, and every girl in the class would rush to dump their Masachika shares. In the end, silence was probably the right answer."
+389,0.801769,6,10,4,0.8,0.601327,总之要是反驳说「可惜我是奶子星人」，艾莉莎心中的政近股价肯定创新低，全班女生也会抢著拋售政近股，所以到头来保持沉默应该才是正确答案。 ,"After all, if he retorted, ""Unfortunately, I'm a boob person,"" Masachika's stock in Alya's eyes would plummet to an all-time low, and every girl in the class would rush to dump their Masachika shares. In the end, silence was probably the right answer."
 391,0.82161,5,6,1,1.0,0.82161,（不过啊～～仔细想想，我做的事情没那么严重吧？） ,"""But... when you think about it carefully, what I did wasn't really that serious, was it?"""
 393,0.765545,2,1,1,1.0,0.765545,艾莉莎的冷淡反应，使得政近内心冒出这种想法。 ,Alya's cold response triggered this thought within Masachika.
 395,0.733035,3,3,0,1.0,0.733035,政近摸艾莉莎的腿，原本就是艾莉莎自己的指示，因为害臊而往上踢的也是艾莉莎。 ,"After all, touching Alya's leg had originally been her own instruction, and it was she herself who kicked upward out of shyness."

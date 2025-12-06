@@ -63,7 +63,16 @@ class UniversalSplitter:
         i = 0
         while i < n:
             char = text[i]
-
+            # 如果该字符是被 ASCII 字母/数字包围的半角标点（例如 Alya's 中的 '），
+            # 则应视为单词内部，不当作引号/括号 opener/closer 处理。
+            # 使用 PunctuationHandler.is_between_ascii_letters 保持与标点统计/跳过逻辑一致。
+            try:
+                if PunctuationHandler.is_between_ascii_letters(text, i):
+                    i += 1
+                    continue
+            except Exception:
+                # 保守处理：若检查失败，继续原有逻辑
+                pass
             # Check if this character is a symmetric quote/bracket (both opener and closer)
             if (
                 char in cls.OPENERS
@@ -118,7 +127,13 @@ class UniversalSplitter:
         i = 0
         while i < n:
             char = text[i]
-
+            # 同样：跳过被 ASCII 字母/数字包围的半角符号，不将其视为引号/括号的开/闭符
+            try:
+                if PunctuationHandler.is_between_ascii_letters(text, i):
+                    i += 1
+                    continue
+            except Exception:
+                pass
             # Check if this character is a symmetric quote/bracket (both opener and closer)
             if (
                 char in cls.OPENERS
@@ -198,6 +213,10 @@ class UniversalSplitter:
             i = match.start()
             char = match.group()
             pos = match.end()
+
+            # 如果该软分隔符被 ASCII 字母包围（例如单词内部的撇号/连字符），跳过
+            if PunctuationHandler.is_between_ascii_letters(text, i):
+                continue
 
             # Skip if inside any quoted/bracketed context
             if in_quoted[i]:
@@ -396,6 +415,14 @@ class UniversalSplitter:
         i = 0
         while i < n:
             char = text[i]
+            # 跳过像 Alya's 中被字母包围的半角标点，避免误判为未闭合 opener
+            try:
+                if PunctuationHandler.is_between_ascii_letters(text, i):
+                    i += 1
+                    continue
+            except Exception:
+                pass
+
             if char in cls.OPENERS:
                 stack.append((char, i))
             elif char in cls.CLOSERS:
@@ -412,7 +439,7 @@ class UniversalSplitter:
             i += 1
 
         # All remaining items in stack are unclosed openers
-        for opener_char, pos in stack:
+        for _, pos in stack:
             unclosed_positions.add(pos)
 
         return unclosed_positions
@@ -443,6 +470,10 @@ class UniversalSplitter:
             pos = match.end()
 
             # Skip if inside any quoted/bracketed context
+            # 如果该软分隔符是被 ASCII 字母包围的半角标点（例如 Alya's），则跳过
+            if PunctuationHandler.is_between_ascii_letters(text, i):
+                continue
+
             if in_quoted[i]:
                 continue
 

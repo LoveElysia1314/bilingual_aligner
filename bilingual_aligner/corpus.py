@@ -1,10 +1,13 @@
 """
 Corpus management for bilingual text alignment.
+
+Note: Data model classes (RepairType, SplitType, AlignmentState, RepairLog)
+have been migrated to repair.models. This file now only contains
+BilingualCorpus and LineObject classes.
 """
 
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-from enum import Enum
 from datetime import datetime
 import hashlib
 import numpy as np
@@ -13,62 +16,6 @@ from .core.punctuation import (
     PunctuationHandler,
     calculate_punctuation_similarity,
 )
-
-
-class RepairType(Enum):
-    MERGE_LINES = "MERGE_LINES"
-    SPLIT_LINE = "SPLIT_LINE"
-    INSERT_LINE = "INSERT_LINE"
-    DELETE_LINE = "DELETE_LINE"
-
-
-class SplitType(Enum):
-    """Categorizes split operations as hard (sentence-level) or soft (phrase-level)"""
-
-    HARD_SPLIT = "hard_split"  # Split at sentence boundaries (punctuation)
-    SOFT_SPLIT = "soft_split"  # Split at soft boundaries (commas, colons, etc)
-
-
-class AlignmentState(Enum):
-    NO_SHIFT = "no_shift"
-    SOURCE_AHEAD = "source_ahead"
-
-
-@dataclass
-class RepairLog:
-    """
-    Repair log entry with position tracking and similarity metrics.
-
-    Position tracking uses both ORIGINAL FILE LINE NUMBERS and INTERNAL FILTERED INDICES:
-    - source_orig_line_numbers: tuple of original file line numbers for source lines
-    - target_orig_line_numbers: tuple of original file line numbers for target lines
-    - source_filtered_position: tuple of internal filtered indices for source (0-based)
-    - target_filtered_position: tuple of internal filtered indices for target (0-based)
-    """
-
-    repair_type: RepairType
-    description: str
-    source_text: str
-    target_before: str
-    target_after: str
-    similarity_before: float
-    similarity_after: float
-    source_orig_line_numbers: Optional[tuple[int, ...]] = (
-        None  # ORIGINAL file line numbers for source
-    )
-    target_orig_line_numbers: Optional[tuple[int, ...]] = (
-        None  # ORIGINAL file line numbers for target
-    )
-    source_filtered_position: Optional[tuple[int, ...]] = (
-        None  # Internal filtered indices for source (0-based)
-    )
-    target_filtered_position: Optional[tuple[int, ...]] = (
-        None  # Internal filtered indices for target (0-based)
-    )
-    split_type: Optional[SplitType] = None  # For SPLIT_LINE repairs: hard or soft split
-    is_fallback: bool = (
-        False  # True if DELETE/INSERT used as fallback when no merge/split improvements
-    )
 
 
 @dataclass
@@ -126,7 +73,6 @@ class BilingualCorpus:
             {}
         )  # Filtered index -> original line number mapping (for target)
         self.line_cache: Dict[str, LineObject] = {}  # Text hash -> LineObject cache
-        self.version: int = 0  # Incremented after each repair to invalidate caches
 
     def load_source(self, file_path: str):
         """Load source file, preserving empty lines for final output"""
